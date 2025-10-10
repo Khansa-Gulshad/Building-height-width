@@ -77,26 +77,53 @@ def segment_image(image_pil, processor, model):
 # =========================
 def fetch_gsv_image_by_location(
     lat, lon, heading, pitch=6, fov=70, size="640x640",
-    api_key=None, retries=3, backoff=1.6, timeout=20
+    api_key=None, retries=2, backoff=1.6, timeout=20, radius=300
 ):
     """
-    Fetch a Street View image for given pose. Returns PIL.Image RGB.
+    Robust Street View fetch:
+      1) call Metadata API to get nearest pano_id (within `radius` meters)
+      2) fetch the image with pano_id + heading/pitch/fov
+    Raises RuntimeError with a clear message on failure.
     """
     assert api_key, "GSV API key required"
+
+    # 1) Metadata: nearest pano_id
+    meta_url = (
+        "https://maps.googleapis.com/maps/api/streetview/metadata"
+        f"?location={lat},{lon}&radius={radius}&key={api_key}"
+    )
+    mr = requests.get(meta_url, timeout=timeout)
+    try:
+        meta = mr.json()
+    except Exception:
+        raise RuntimeError(f"Metadata HTTP {mr.status_code}: {mr.text[:160]}")
+    status = meta.get("status", "UNKNOWN")
+    if status != "OK":
+        raise RuntimeError(f"Metadata status {status}: {meta.get('error_message') or ''}".strip())
+    pano_id = meta.get("pano_id")
+    if not pano_id:
+        raise RuntimeError("Metadata OK but missing pano_id")
+
+    # 2) Image by pano
     url = (
         "https://maps.googleapis.com/maps/api/streetview"
-        f"?size={size}&location={lat},{lon}&heading={heading}&pitch={pitch}&fov={fov}&key={api_key}"
+        f"?size={size}&pano={pano_id}&heading={heading}&pitch={pitch}&fov={fov}&key={api_key}"
     )
+
     last_err = None
     for attempt in range(retries):
         try:
             resp = requests.get(url, timeout=timeout)
-            resp.raise_for_status()
-            return Image.open(io.BytesIO(resp.content)).convert("RGB")
+            ct = resp.headers.get("content-type", "")
+            if resp.status_code != 200 or ("image" not in ct):
+                # Google sometimes returns HTML/JSON bodies with 200; surface details:
+                raise RuntimeError(f"Image fetch HTTP {resp.status_code}, CT={ct}, body={resp.text[:160]}")
+            return Image.open(BytesIO(resp.content)).convert("RGB")
         except Exception as e:
             last_err = e
-            time.sleep((backoff ** attempt))
-    raise last_err
+            time.sleep(backoff ** attempt)
+
+    raise RuntimeError(f"Image fetch failed after retries: {last_err}")
 
 
 # =========================
