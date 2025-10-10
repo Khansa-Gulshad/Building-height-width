@@ -19,6 +19,7 @@ from transformers import AutoImageProcessor, Mask2FormerForUniversalSegmentation
 
 # use your 3-class helpers from segmentation.py
 from segmentation import remap_to_three, save_three_class_mask, save_overlay
+from modules.config import PROJECT_DIR, city_to_dir
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
