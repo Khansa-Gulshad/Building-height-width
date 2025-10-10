@@ -28,7 +28,7 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 # FOLDERS
 # =========================
 def prepare_folders(city: str):
-    base = os.path.join("/mnt/project/pt01183/results", city)
+    base = os.path.join(PROJECT_DIR, city_to_dir(city))
     for sub in ["seg_3class", "seg_qa", "sample_images"]:
         os.makedirs(os.path.join(base, sub), exist_ok=True)
 
@@ -202,7 +202,7 @@ def download_images_for_points(
                 manifest.append(["POINT_ERROR", "ERROR", None, pitch_deg, fov_deg])
 
     # write manifest
-    out_dir = os.path.join("/mnt/project/pt01183/results", city, "seg_3class")
+    out_dir = os.path.join(PROJECT_DIR, city_to_dir(city), "seg_3class")
     os.makedirs(out_dir, exist_ok=True)
     with open(os.path.join(out_dir, "manifest.csv"), "w", newline="") as fh:
         w = csv.writer(fh)
