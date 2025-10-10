@@ -63,7 +63,6 @@ def save_three_class_mask(city: str, image_id: str, mask3: np.ndarray, out_root=
 def save_overlay(city: str, image_id: str, rgb: np.ndarray, mask3: np.ndarray, out_root=PROJECT_DIR):
     qa_dir = os.path.join(out_root, city_to_dir(city), "seg_qa")
     os.makedirs(qa_dir, exist_ok=True)
-    _ensure_dir(qa_dir)
     ov = overlay_rgb_with_mask(rgb, mask3, alpha=0.4)
     path = os.path.join(qa_dir, f"{image_id}_overlay.jpg")
     Image.fromarray(ov).save(path, quality=92)
