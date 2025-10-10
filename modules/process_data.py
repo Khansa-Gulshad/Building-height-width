@@ -186,8 +186,8 @@ def download_facade_masks_for_point(
                 save_overlay(city, image_id, np.array(img), mask3)
 
             records.append([image_id, mask_path, h, pitch_deg, fov_deg])
-        except Exception:
-            records.append([image_id, "ERROR", h, pitch_deg, fov_deg])
+        except Exception as e:
+            records.append([image_id, f"ERROR: {e}", h, pitch_deg, fov_deg])
 
     return records  # list of [image_id, mask_path|ERROR, heading, pitch, fov]
 
