@@ -12,6 +12,7 @@ import numpy as np
 
 import geopandas as gpd
 import torch
+from io import BytesIO
 from PIL import Image, ImageFile
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
