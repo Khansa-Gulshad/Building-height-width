@@ -1,419 +1,261 @@
+# process_data.py
 import os
 os.environ['USE_PYGEOS'] = '0'
 
-from transformers import AutoImageProcessor, Mask2FormerForUniversalSegmentation
-from scipy.signal import find_peaks
-import torch
-
-import google_streetview.api
-
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from tqdm import tqdm
-import threading
+import io
 import csv
-
-from modules.segmentation_images import save_images
-
-from PIL import Image, ImageFile
-from io import BytesIO
-import numpy as np
+import time
+import math
+import argparse
 import requests
+import numpy as np
+
+import geopandas as gpd
+import torch
+from PIL import Image, ImageFile
+from tqdm import tqdm
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from transformers import AutoImageProcessor, Mask2FormerForUniversalSegmentation
+
+# use your 3-class helpers from segmentation.py
+from segmentation import remap_to_three, save_three_class_mask, save_overlay
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
-def prepare_folders(city):
-    # Create folder for storing GVI results, sample points and road network if they don't exist yet
-    dir_path = os.path.join("/mnt/project/pt01183/results", city, "gvi_iai_osi")
-    if not os.path.exists(dir_path):
-        os.makedirs(dir_path)
-    
-    dir_path = os.path.join("/mnt/project/pt01183/results", city, "points")
-    if not os.path.exists(dir_path):
-        os.makedirs(dir_path)
 
-    dir_path = os.path.join("/mnt/project/pt01183/results", city, "roads")
-    if not os.path.exists(dir_path):
-        os.makedirs(dir_path)
+# =========================
+# FOLDERS
+# =========================
+def prepare_folders(city: str):
+    base = os.path.join("/mnt/project/pt01183/results", city)
+    for sub in ["seg_3class", "seg_qa", "sample_images"]:
+        os.makedirs(os.path.join(base, sub), exist_ok=True)
 
-    dir_path = os.path.join("/mnt/project/pt01183/results", city, "sample_images")
-    if not os.path.exists(dir_path):
-        os.makedirs(dir_path)
-    
 
+# =========================
+# MODEL LOADING
+# =========================
 def get_models():
-    # Load the pretrained AutoImageProcessor from the "facebook/mask2former-swin-large-cityscapes-semantic" model
-    processor = AutoImageProcessor.from_pretrained("facebook/mask2former-swin-large-cityscapes-semantic")
-    # Set the device to GPU if available, otherwise use CPU
+    """
+    Load Mask2Former (Cityscapes) on GPU if available.
+    """
+    processor = AutoImageProcessor.from_pretrained(
+        "facebook/mask2former-swin-large-cityscapes-semantic"
+    )
+    model = Mask2FormerForUniversalSegmentation.from_pretrained(
+        "facebook/mask2former-swin-large-cityscapes-semantic"
+    )
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    # Load the pretrained Mask2FormerForUniversalSegmentation model from "facebook/mask2former-swin-large-cityscapes-semantic"
-    model = Mask2FormerForUniversalSegmentation.from_pretrained("facebook/mask2former-swin-large-cityscapes-semantic")
-    # Move the model to the specified device (GPU or CPU)
     model = model.to(device)
-    # Return the processor and model as a tuple
+    model.eval()
     return processor, model
 
 
-def segment_images(image, processor, model):
-    # Preprocess the image using the image processor
-    inputs = processor(images=image, return_tensors="pt")
-    
-    # Perform a forward pass through the model to obtain the segmentation
+def segment_image(image_pil, processor, model):
+    """
+    Run semantic segmentation and return torch tensor (H,W) int labels.
+    """
+    inputs = processor(images=image_pil, return_tensors="pt")
     with torch.no_grad():
-        # Check if a GPU is available
         if torch.cuda.is_available():
-            # Move the inputs to the GPU
             inputs = {k: v.to('cuda') for k, v in inputs.items()}
-            # Perform the forward pass through the model
             outputs = model(**inputs)
-            # Post-process the semantic segmentation outputs using the processor and move the results to CPU
-            segmentation = processor.post_process_semantic_segmentation(outputs, target_sizes=[image.size[::-1]])[0].to('cpu')
+            seg = processor.post_process_semantic_segmentation(
+                outputs, target_sizes=[image_pil.size[::-1]]
+            )[0].to('cpu')
         else:
-            # Perform the forward pass through the model
             outputs = model(**inputs)
-            # Post-process the semantic segmentation outputs using the processor
-            segmentation = processor.post_process_semantic_segmentation(outputs, target_sizes=[image.size[::-1]])[0]
-            
-    return segmentation
+            seg = processor.post_process_semantic_segmentation(
+                outputs, target_sizes=[image_pil.size[::-1]]
+            )[0]
+    return seg  # torch (H,W)
 
 
-# Based on Matthew Danish code (https://github.com/mrd/vsvi_filter/tree/master)
-def run_length_encoding(in_array):
-    # Convert input array to a NumPy array
-    image_array = np.asarray(in_array)
-    length = len(image_array)
-    if length == 0: 
-        # Return None values if the array is empty
-        return (None, None, None)
-    else:
-        # Calculate run lengths and change points in the array
-        pairwise_unequal = image_array[1:] != image_array[:-1]
-        change_points = np.append(np.where(pairwise_unequal), length - 1)   # must include last element posi
-        run_lengths = np.diff(np.append(-1, change_points))       # run lengths
-        return(run_lengths, image_array[change_points])
-
-def get_road_pixels_per_column(prediction):
-    # Check which pixels in the prediction array correspond to roads (label 0)
-    road_pixels = prediction == 0.0
-    road_pixels_per_col = np.zeros(road_pixels.shape[1])
-    
-    for i in range(road_pixels.shape[1]):
-        # Encode the road pixels in each column and calculate the maximum run length
-        run_lengths, values = run_length_encoding(road_pixels[:,i])
-        road_pixels_per_col[i] = run_lengths[values.nonzero()].max(initial=0)
-    return road_pixels_per_col
-
-def get_road_centres(prediction, distance=2000, prominence=100):
-    # Get the road pixels per column in the prediction
-    road_pixels_per_col = get_road_pixels_per_column(prediction)
-
-    # Find peaks in the road_pixels_per_col array based on distance and prominence criteria
-    peaks, _ = find_peaks(road_pixels_per_col, distance=distance, prominence=prominence)
-    
-    return peaks
+# =========================
+# STREET VIEW FETCH (DIRECT)
+# =========================
+def fetch_gsv_image_by_location(
+    lat, lon, heading, pitch=6, fov=70, size="640x640",
+    api_key=None, retries=3, backoff=1.6, timeout=20
+):
+    """
+    Fetch a Street View image for given pose. Returns PIL.Image RGB.
+    """
+    assert api_key, "GSV API key required"
+    url = (
+        "https://maps.googleapis.com/maps/api/streetview"
+        f"?size={size}&location={lat},{lon}&heading={heading}&pitch={pitch}&fov={fov}&key={api_key}"
+    )
+    last_err = None
+    for attempt in range(retries):
+        try:
+            resp = requests.get(url, timeout=timeout)
+            resp.raise_for_status()
+            return Image.open(io.BytesIO(resp.content)).convert("RGB")
+        except Exception as e:
+            last_err = e
+            time.sleep((backoff ** attempt))
+    raise last_err
 
 
-def find_road_centre(segmentation):
-    # Calculate distance and prominence thresholds based on the segmentation shape
-	distance = int(2000 * segmentation.shape[1] // 5760)
-	prominence = int(100 * segmentation.shape[0] // 2880)
-	
-    # Find road centers based on the segmentation, distance, and prominence thresholds
-	centres = get_road_centres(segmentation, distance=distance, prominence=prominence)
-	
-	return centres
+# =========================
+# SINGLE VIEW → 3-CLASS MASK
+# =========================
+def process_facade_view(img_pil, processor, model):
+    """
+    Returns uint8 mask with values {0,1,2,3}; we use {1=building,2=sky,3=ground}.
+    """
+    seg_full = segment_image(img_pil, processor, model)  # torch (H,W)
+    mask_full_np = seg_full.cpu().numpy().astype(np.int32)
+    mask3 = remap_to_three(mask_full_np).astype(np.uint8)
+    return mask3
 
 
-def crop_panoramic_images_roads(original_width, image, segmentation, road_centre):
-    width, height = image.size
+# =========================
+# PER-POINT RUNNER (two headings: road_angle ± 90°)
+# =========================
+def _round_heading(h):  # nicer filenames
+    return int(round(h)) % 360
 
-    # Find duplicated centres
-    duplicated_centres = [centre - original_width for centre in road_centre if centre >= original_width]
-            
-    # Drop the duplicated centres
-    road_centre = [centre for centre in road_centre if centre not in duplicated_centres]
-
-    # Calculate dimensions and offsets
-    w4 = int(width / 4) # 
-    h4 = 0
-    hFor43 = height
-    w98 = width + (w4 / 2)
-    xrapneeded = int(width * 7 / 8)
-
-    images = []
-    pickles = []
-
-    # Crop the panoramic image based on road centers
-    for centre in road_centre:
-        # Wrapped all the way around
-        if centre >= w98:
-            xlo = int((width - centre) - w4/2)
-            cropped_image = image.crop((xlo, h4, xlo + w4, h4 + hFor43))
-            cropped_segmentation = segmentation[h4:h4+hFor43, xlo:xlo+w4]
-        
-        # Image requires assembly of two sides
-        elif centre > xrapneeded:
-            xlo = int(centre - (w4/2)) # horizontal_offset
-            w4_p1 = width - xlo
-            w4_p2 = w4 - w4_p1
-
-            # Crop and concatenate image and segmentation
-            cropped_image_1 = image.crop((xlo, h4, xlo + w4_p1, h4 + hFor43))
-            cropped_image_2 = image.crop((0, h4, w4_p2, h4 + hFor43))
-
-            cropped_image = Image.new(image.mode, (w4, hFor43))
-            cropped_image.paste(cropped_image_1, (0, 0))
-            cropped_image.paste(cropped_image_2, (w4_p1, 0))
-
-            cropped_segmentation_1 = segmentation[h4:h4+hFor43, xlo:xlo+w4_p1]
-            cropped_segmentation_2 = segmentation[h4:h4+hFor43, 0:w4_p2]
-            cropped_segmentation = torch.cat((cropped_segmentation_1, cropped_segmentation_2), dim=1)
-        
-        # Must paste together the two sides of the image
-        elif centre < (w4 / 2):
-            w4_p1 = int((w4 / 2) - centre)
-            xhi = width - w4_p1
-            w4_p2 = w4 - w4_p1
-
-            # Crop and concatenate image and segmentation
-            cropped_image_1 = image.crop((xhi, h4, xhi + w4_p1, h4 + hFor43))
-            cropped_image_2 = image.crop((0, h4, w4_p2, h4 + hFor43))
-
-            cropped_image = Image.new(image.mode, (w4, hFor43))
-            cropped_image.paste(cropped_image_1, (0, 0))
-            cropped_image.paste(cropped_image_2, (w4_p1, 0))
-
-            cropped_segmentation_1 = segmentation[h4:h4+hFor43, xhi:xhi+w4_p1]
-            cropped_segmentation_2 = segmentation[h4:h4+hFor43, 0:w4_p2]
-            cropped_segmentation = torch.cat((cropped_segmentation_1, cropped_segmentation_2), dim=1)
-            
-        # Straightforward crop
-        else:
-            xlo = int(centre - w4/2)
-            cropped_image = image.crop((xlo, h4, xlo + w4, h4 + hFor43))
-            cropped_segmentation = segmentation[h4:h4+hFor43, xlo:xlo+w4]
-        
-        images.append(cropped_image)
-        pickles.append(cropped_segmentation)
-
-    return images, pickles
-
-
-def crop_panoramic_images(image, segmentation):
-    width, height = image.size
-
-    w4 = int(width / 4)
-    h4 = int(height / 4)
-    hFor43 = int(w4 * 3 / 4)
-
-    images = []
-    pickles = []
-
-    # Crop the panoramic image based on road centers
-    for w in range(4):
-        x_begin = w * w4
-        x_end = (w + 1) * w4
-        cropped_image = image.crop((x_begin, h4, x_end, h4 + hFor43))
-        cropped_segmentation = segmentation[h4:h4+hFor43, x_begin:x_end]
-
-        images.append(cropped_image)
-        pickles.append(cropped_segmentation)
-    
-    return images, pickles
-    
-
-def get_GVI(segmentations):
-    total_pixels = 0
-    vegetation_pixels = 0
-    
-    for segment in segmentations:
-        # Calculate the total number of pixels in the segmentation
-        total_pixels += segment.numel()
-        # Filter the pixels that represent vegetation (label 8) and count them
-        vegetation_pixels += (segment == 8).sum().item()
-    
-    # Calculate the percentage of green pixels in the segmentation
-    return vegetation_pixels / total_pixels if total_pixels else 0
-	
-def get_IAI(segmentations, impervious_labels=[0, 1]):
-    total_pixels = 0
-    impervious_pixels = 0
-
-    for segment in segmentations:
-        total_pixels += segment.numel()
-        for label in impervious_labels:
-            impervious_pixels += (segment == label).sum().item()
-
-    return impervious_pixels / total_pixels if total_pixels else 0
-
-
-def get_OSI(segmentations):
-    total_pixels = 0
-    terrain_pixels = 0
-
-    for segment in segmentations:
-        total_pixels += segment.numel()
-        terrain_pixels += (segment == 9).sum().item()  # 9 = terrain
-
-    return terrain_pixels / total_pixels if total_pixels else 0
-
-def process_images(image, cut_by_road_centres, processor, model):
-    try:      
-        # Get the size of the image
-        width, height = image.size
-
-        # Apply the semantic segmentation to the image
-        segmentation = segment_images(image, processor, model)
-            
-        if cut_by_road_centres:
-            # Create a widened panorama by wrapping the first 25% of the image onto the right edge
-            width, height = image.size
-            w4 = int(0.25 * width)
-                
-            segmentation_25 = segmentation[:, :w4]
-            # Concatenate the tensors along the first dimension (rows) to create the widened panorama with the segmentations
-            segmentation_road = torch.cat((segmentation, segmentation_25), dim=1)
-
-            cropped_image = image.crop((0, 0, w4, height))
-            widened_image = Image.new(image.mode, (width + w4, height))
-            widened_image.paste(image, (0, 0))
-            widened_image.paste(cropped_image, (width, 0))
-
-            # Find the road centers to determine if the image is suitable for analysis
-            road_centre = find_road_centre(segmentation_road)
-                
-            # Crop the image and its segmentation based on the previously found road centers
-            images, pickles = crop_panoramic_images_roads(width, widened_image, segmentation_road, road_centre)
-        
-            # Calculate the Green View Index (GVI) for the cropped segmentations
-            GVI = get_GVI(pickles)
-        else:
-			
-            # Cut panoramic image in 4 equal parts
-            # Crop the image and its segmentation based on the previously found road centers
-            images, pickles = crop_panoramic_images(image, segmentation)
-			
-        
-            # Calculate the Green View Index (GVI) for the cropped segmentations
-            GVI = get_GVI(pickles)
-            IAI = get_IAI(pickles)
-            OSI = get_OSI(pickles)
-		
-
-        return images, pickles, [GVI, IAI, OSI, False, False]
-
-    except:
-        # If there was an error while processing the image, set the "error" flag to true and continue with other images
-        return None, None, [None, None, None, True, True]
-
-
-# Download images
-def download_image(id, geometry, save_sample, city, cut_by_road_centres, access_token, processor, model):
-    # Check if the image id exists
+def download_facade_masks_for_point(
+    row, city, access_token, processor, model,
+    pitch_deg=6, fov_deg=70, size="640x640",
+    save_sample=False
+):
+    """
+    row: GeoDataFrame row with:
+      - id
+      - geometry (Point; x=lon, y=lat) in WGS84
+      - road_angle (deg from North)
+    Fetch two images: headings = road_angle ± 90°, segment, save masks (+ overlay).
+    """
+    lat, lon = row.geometry.y, row.geometry.x
     try:
-        # Parameters to get the image at 0°
-        params = [{
-                'size': '640x640',
-                'location': f"{geometry.y},{geometry.x}",
-                'heading': 0,
-                'fov': '90',
-                'key': f"{access_token}",
-            }]
-        
-        # Obtain the metadata of the image to request the missing tiles (90°, 180° and 270°) of the same panoramic
-        image_metadata = google_streetview.api.results(params)
+        ra = float(row.road_angle)
+        if math.isnan(ra):
+            ra = 0.0
+    except Exception:
+        ra = 0.0
 
-        panorama_images = [Image.open(requests.get(image_metadata.links[0], stream=True).raw)]
-        
-        # Create the authorization header for the Google Street View API request
-        for angle in [90, 180, 270]:
-            params = [{
-                'size': '640x640',
-                'pano': image_metadata.metadata[0]['pano_id'],
-                'heading': angle,
-                'fov': '90',
-                'key': f"{access_token}",
-            }]
+    headings = [ (ra + 90) % 360, (ra + 270) % 360 ]
+    records = []
 
-            image_metadata = google_streetview.api.results(params)
+    for h in headings:
+        image_id = f"{row.id}_{_round_heading(h)}"
+        try:
+            img = fetch_gsv_image_by_location(
+                lat, lon,
+                heading=h, pitch=pitch_deg, fov=fov_deg, size=size,
+                api_key=access_token
+            )
+            mask3 = process_facade_view(img, processor, model)
 
-            panorama_images.append(Image.open(requests.get(image_metadata.links[0], stream=True).raw))
+            # save mask (grayscale PNG; values {0,1,2,3})
+            mask_path = save_three_class_mask(city, image_id, mask3)
 
-        if len(panorama_images) > 0:
-            # Stitch the images together horizontally to form the panorama
-            panorama = Image.new(panorama_images[0].mode, (len(panorama_images) * panorama_images[0].width, panorama_images[0].height))
-
-            # Paste all thei images together to form the panoramic image
-            for i, img in enumerate(panorama_images):
-                panorama.paste(img, (i * img.width, 0))
-
-            # Process the downloaded image using the provided image URL, is_panoramic flag, processor, and model
-            images, segmentations, result = process_images(panorama, cut_by_road_centres, processor, model)
-
+            # optional QA overlay
             if save_sample:
-                save_images(city, id, images, segmentations, result[0])
-        else:
-            # There's not an image in this point
-            result = [None, True, False]
+                save_overlay(city, image_id, np.array(img), mask3)
 
-    except:
-        # An error occurred during the downloading of the image
-        result = [None, True, True]
+            records.append([image_id, mask_path, h, pitch_deg, fov_deg])
+        except Exception:
+            records.append([image_id, "ERROR", h, pitch_deg, fov_deg])
 
-    # Insert the coordinates (x and y) and the point ID at the beginning of the result list
-    # This helps us associate the values in the result list with their corresponding point
-    result.insert(0, geometry.y)
-    result.insert(0, geometry.x)
-    result.insert(0, id)
-
-    return result
+    return records  # list of [image_id, mask_path|ERROR, heading, pitch, fov]
 
 
-def download_images_for_points(gdf, access_token, max_workers, cut_by_road_centres, city, file_name):
-    # Get image processing models
+# =========================
+# BATCH DRIVER (uses *your* points with road_angle)
+# =========================
+def download_images_for_points(
+    gdf, access_token, city,
+    pitch_deg=6, fov_deg=70, size="640x640",
+    save_sample=False, max_workers=1
+):
+    """
+    Runs façade segmentation on a points GDF that ALREADY has 'road_angle'.
+    gdf must be in WGS84 (EPSG:4326).
+    """
+    prepare_folders(city)
     processor, model = get_models()
 
-    # Prepare CSV file path
-    csv_file = f"gvi-points-{file_name}.csv"
-    csv_path = os.path.join("/mnt/project/pt01183/results", city, "gvi_iai_osi", csv_file)
+    manifest = []
+    max_workers = max(1, int(max_workers))  # single-GPU → usually keep 1
 
-    # Check if the CSV file exists and chose the correct editing mode
-    file_exists = os.path.exists(csv_path)
-    mode = 'a' if file_exists else 'w'
+    with ThreadPoolExecutor(max_workers=max_workers) as ex:
+        futures = []
+        for _, row in gdf.iterrows():
+            futures.append(
+                ex.submit(
+                    download_facade_masks_for_point,
+                    row, city, access_token, processor, model,
+                    pitch_deg, fov_deg, size, save_sample
+                )
+            )
 
-    # Create a lock object for thread safety
-    results = []
-    lock = threading.Lock()
-    
-    # Open the CSV file in append mode with newline=''
-    with open(csv_path, mode, newline='') as csvfile:
-        # Create a CSV writer object
-        writer = csv.writer(csvfile)
+        for f in tqdm(as_completed(futures), total=len(futures), desc="Façade masks (±90°)"):
+            try:
+                recs = f.result()
+                manifest.extend(recs)
+            except Exception:
+                manifest.append(["POINT_ERROR", "ERROR", None, pitch_deg, fov_deg])
 
-        # Write the header row if the file is newly created
-        if not file_exists:
-            writer.writerow(["id", "x", "y", "GVI", "IAI", "OSI", "missing", "error"])
-        
-        # Create a ThreadPoolExecutor to process images concurrently
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = []
+    # write manifest
+    out_dir = os.path.join("/mnt/project/pt01183/results", city, "seg_3class")
+    os.makedirs(out_dir, exist_ok=True)
+    with open(os.path.join(out_dir, "manifest.csv"), "w", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(["image_id", "mask_path", "heading_deg", "pitch_deg", "fov_deg"])
+        for row in manifest:
+            w.writerow(row)
 
-            # Iterate over the rows in the GeoDataFrame
-            for _, row in gdf.iterrows():
-                try:
-                    # Submit a download_image task to the executor
-                    futures.append(executor.submit(download_image, row["id"], row["geometry"], row["save_sample"], city, cut_by_road_centres, access_token, processor, model))
-                except Exception as e:
-                    print(f"Exception occurred for row {row['id']}: {str(e)}")
-            
-            # Process the completed futures using tqdm for progress tracking
-            for future in tqdm(as_completed(futures), total=len(futures), desc=f"Downloading images"):
-                # Retrieve the result of the completed future
-                image_result = future.result()
+    return manifest
 
-                # Acquire the lock before appending to results and writing to the CSV file
-                with lock:
-                    results.append(image_result)
-                    writer.writerow(image_result)
 
+# =========================
+# CLI (reads your existing points file; no building/sweeps)
+# =========================
+def main():
+    ap = argparse.ArgumentParser(description="Façade 3-class segmentation from points with road_angle (±90° only)")
+    ap.add_argument("--city", type=str, required=True, help="City name (for results path)")
+    ap.add_argument("--api_key", type=str, default=os.getenv("GSV_API_KEY"), help="Google Street View API key")
+    ap.add_argument("--points", type=str, required=True, help="Path to GeoPackage/GeoJSON with points (must have 'road_angle')")
+    ap.add_argument("--layer", type=str, default=None, help="Layer name if reading from GeoPackage")
+    ap.add_argument("--pitch", type=float, default=6.0, help="Camera pitch (deg)")
+    ap.add_argument("--fov", type=float, default=70.0, help="Field of view (deg)")
+    ap.add_argument("--size", type=str, default="640x640", help="Image size for Static API")
+    ap.add_argument("--save_qa", action="store_true", help="Save overlay QA images")
+    ap.add_argument("--workers", type=int, default=1, help="Thread workers (keep 1 for single GPU)")
+    args = ap.parse_args()
+
+    if not args.api_key:
+        raise SystemExit("Provide --api_key or set env GSV_API_KEY")
+
+    # read your existing points (already created by road_network.py pipeline)
+    gdf = gpd.read_file(args.points, layer=args.layer) if args.layer else gpd.read_file(args.points)
+    if gdf.crs is None or gdf.crs.to_epsg() != 4326:
+        gdf = gdf.to_crs(4326)
+
+    if "road_angle" not in gdf.columns:
+        raise SystemExit("The provided points file must contain 'road_angle'.")
+
+    if "id" not in gdf.columns:
+        gdf = gdf.reset_index(drop=True)
+        gdf["id"] = np.arange(len(gdf), dtype=int)
+
+    # run
+    download_images_for_points(
+        gdf=gdf,
+        access_token=args.api_key,
+        city=args.city,
+        pitch_deg=args.pitch,
+        fov_deg=args.fov,
+        size=args.size,
+        save_sample=args.save_qa,
+        max_workers=args.workers
+    )
+
+if __name__ == "__main__":
+    main()
     # Return the processed image results
     return results
