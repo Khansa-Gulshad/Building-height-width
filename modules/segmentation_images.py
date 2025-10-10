@@ -53,21 +53,16 @@ def overlay_rgb_with_mask(rgb: np.ndarray, mask3: np.ndarray, alpha=0.4) -> np.n
 def _ensure_dir(p):
     os.makedirs(p, exist_ok=True)
 
-def save_three_class_mask(city: str, image_id: str, mask3: np.ndarray, out_root="/mnt/project/pt01183/results"):
-    """
-    Save 3-class grayscale mask as PNG (lossless). Values are {0,1,2,3}.
-    """
-    out_dir = os.path.join(out_root, city, "seg_3class")
-    _ensure_dir(out_dir)
+def save_three_class_mask(city: str, image_id: str, mask3: np.ndarray, out_root=PROJECT_DIR):
+    out_dir = os.path.join(out_root, city_to_dir(city), "seg_3class")
+    os.makedirs(out_dir, exist_ok=True)
     path = os.path.join(out_dir, f"{image_id}.png")
     Image.fromarray(mask3, mode="L").save(path)
     return path
 
-def save_overlay(city: str, image_id: str, rgb: np.ndarray, mask3: np.ndarray, out_root="/mnt/project/pt01183/results"):
-    """
-    Save QA overlay JPG.
-    """
-    qa_dir = os.path.join(out_root, city, "seg_qa")
+def save_overlay(city: str, image_id: str, rgb: np.ndarray, mask3: np.ndarray, out_root=PROJECT_DIR):
+    qa_dir = os.path.join(out_root, city_to_dir(city), "seg_qa")
+    os.makedirs(qa_dir, exist_ok=True)
     _ensure_dir(qa_dir)
     ov = overlay_rgb_with_mask(rgb, mask3, alpha=0.4)
     path = os.path.join(qa_dir, f"{image_id}_overlay.jpg")
