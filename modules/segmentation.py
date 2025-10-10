@@ -2,7 +2,7 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
-
+from modules.config import PROJECT_DIR, city_to_dir
 # ---------- ID remap: adapt if your upstream model uses different IDs ----------
 # Your current palette suggests Cityscapes-like indexing:
 # 0: road, 1: sidewalk, 2: building, 9: terrain, 10: sky
