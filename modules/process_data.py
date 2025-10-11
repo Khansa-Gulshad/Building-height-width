@@ -19,7 +19,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from transformers import AutoImageProcessor, Mask2FormerForUniversalSegmentation
 
 # use your 3-class helpers from segmentation.py
-from segmentation import remap_to_three, save_three_class_mask, save_overlay
+from modules.segmentation import (
+    save_full_label_mask, save_full_color,
+    remap_to_three, save_three_class_mask, save_overlay
+)
 import modules.config as cfg
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
@@ -136,6 +139,8 @@ def process_facade_view(img_pil, processor, model):
     """
     seg_full = segment_image(img_pil, processor, model)  # torch (H,W)
     mask_full_np = seg_full.cpu().numpy().astype(np.int32)
+    save_full_label_mask(city, image_id, mask_full)   # seg_full_labels/<id>.png
+    save_full_color(city, image_id, mask_full)        # seg_full_vis/<id>.png  (pretty colors)
     mask3 = remap_to_three(mask_full_np).astype(np.uint8)
     return mask3
 
