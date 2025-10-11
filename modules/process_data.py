@@ -240,7 +240,7 @@ def download_images_for_points(
                 manifest.append(["POINT_ERROR", "ERROR", None, pitch_deg, fov_deg])
 
     # write manifest
-    out_dir = os.path.join(cfg.PROJECT_DIR, cfg.city_to_dir(city), "seg_3class")
+    out_dir = os.path.join(cfg.PROJECT_DIR, cfg.city_to_dir(city), "seg_3class_vis")
     os.makedirs(out_dir, exist_ok=True)
     with open(os.path.join(out_dir, "manifest.csv"), "w", newline="") as fh:
         w = csv.writer(fh)
