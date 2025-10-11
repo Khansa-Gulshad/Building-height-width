@@ -63,6 +63,20 @@ def remap_to_three(mask_full: np.ndarray) -> np.ndarray:
 def colorize_three(mask3: np.ndarray) -> np.ndarray:
     idx = np.clip(mask3, 0, 3)
     return PALETTE_3[idx]
+    
+def save_three_color(city: str, image_id: str, mask3: np.ndarray, out_root: str | None = None):
+    """
+    Save a human-friendly colorized 3-class PNG:
+    1=building (gray), 2=sky (light blue), 3=ground (brown).
+    """
+    if out_root is None:
+        out_root = cfg.PROJECT_DIR
+    out_dir = os.path.join(out_root, cfg.city_to_dir(city), "seg_3class_vis")
+    _ensure_dir(out_dir)
+    colored = colorize_three(mask3)
+    path = os.path.join(out_dir, f"{image_id}.png")
+    Image.fromarray(colored).save(path)
+    return path
 
 def overlay_rgb_with_mask(rgb: np.ndarray, mask3: np.ndarray, alpha=0.4) -> np.ndarray:
     if not isinstance(rgb, np.ndarray):
