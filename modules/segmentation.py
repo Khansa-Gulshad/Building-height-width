@@ -1,10 +1,15 @@
 import os
 import numpy as np
-from scipy.ndimage import gaussian_filter  # if available
 import matplotlib.pyplot as plt
 from PIL import Image
 import modules.config as cfg  # single source of truth for paths
 
+# optional blur (avoid hard dep on scipy)
+try:
+    from scipy.ndimage import gaussian_filter  # type: ignore
+except Exception:
+    gaussian_filter = None
+    
 # ---------- ID remap (Cityscapes-ish) ----------
 SOURCE_BUILDING_IDS = {2, 3}      # building, wall -> building
 SOURCE_SKY_IDS      = {10}
