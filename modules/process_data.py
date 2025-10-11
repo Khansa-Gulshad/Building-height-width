@@ -20,8 +20,8 @@ from transformers import AutoImageProcessor, Mask2FormerForUniversalSegmentation
 
 # use your 3-class helpers from segmentation.py
 from modules.segmentation import (
-    save_full_label_mask, save_full_color,
-    remap_to_three, save_three_class_mask, save_overlay
+    save_full_color, save_three_color,
+    remap_to_three, save_overlay
 )
 import modules.config as cfg
 
@@ -33,7 +33,7 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 # =========================
 def prepare_folders(city: str):
     base = os.path.join(cfg.PROJECT_DIR, cfg.city_to_dir(city))
-    for sub in ["seg_3class", "seg_qa", "sample_images", "seg_full_labels", "seg_full_vis"]:
+    for sub in ["seg_3class_vis", "seg_full_vis", "seg_qa", "sample_images"]:
         os.makedirs(os.path.join(base, sub), exist_ok=True)
 
 
@@ -186,15 +186,16 @@ def download_facade_masks_for_point(
             mask_full, mask3 = process_facade_view(img, processor, model)
 
             # --- save full 19-class artifacts ---
-            save_full_color(city, image_id, mask_full)       # seg_full_vis/<id>.png
-            save_three_color(city, image_id, mask3)        # 3-class 
-
-            # --- save 3-class label (optional but handy) ---
-            mask_path = save_three_class_mask(city, image_id, mask3)
+            save_full_color(city, image_id, mask_full)       # seg_full_vis/<id>.png (19-class color)
+            save_three_color(city, image_id, mask3)        # seg_3class_vis/<id>.png (3-class color)
+            
             # optional QA overlay
             if save_sample:
-                save_overlay(city, image_id, np.array(img), mask3)
-
+                save_overlay(city, image_id, np.array(img), mask3) # RGB + 3-class overlay
+                
+            # record the 3-class visual path in the manifest
+            mask_path = os.path.join(cfg.PROJECT_DIR, cfg.city_to_dir(city), "seg_3class_vis", f"{image_id}.png")
+           
             records.append([image_id, mask_path, h, pitch_deg, fov_deg])
         except Exception as e:
             records.append([image_id, f"ERROR: {e}", h, pitch_deg, fov_deg])
