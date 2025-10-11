@@ -21,7 +21,7 @@ from transformers import AutoImageProcessor, Mask2FormerForUniversalSegmentation
 # use your 3-class helpers from segmentation.py
 from modules.segmentation import (
     save_full_color, save_three_color,
-    remap_to_three, save_overlay
+    remap_to_three, save_full_overlay
 )
 import modules.config as cfg
 
@@ -33,7 +33,7 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 # =========================
 def prepare_folders(city: str):
     base = os.path.join(cfg.PROJECT_DIR, cfg.city_to_dir(city))
-    for sub in ["seg_3class_vis", "seg_full_vis", "seg_qa", "sample_images"]:
+    for sub in ["seg_3class_vis", "seg_full_vis", "seg_full_overlay", "seg_qa", "sample_images"]:
         os.makedirs(os.path.join(base, sub), exist_ok=True)
 
 
