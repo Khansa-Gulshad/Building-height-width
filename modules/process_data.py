@@ -20,7 +20,7 @@ from transformers import AutoImageProcessor, Mask2FormerForUniversalSegmentation
 
 # use your 3-class helpers from segmentation.py
 from segmentation import remap_to_three, save_three_class_mask, save_overlay
-from modules.config import PROJECT_DIR, city_to_dir
+import modules.config as cfg
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
@@ -29,7 +29,7 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 # FOLDERS
 # =========================
 def prepare_folders(city: str):
-    base = os.path.join(PROJECT_DIR, city_to_dir(city))
+    base = os.path.join(cfg.PROJECT_DIR, cfg.city_to_dir(city))
     for sub in ["seg_3class", "seg_qa", "sample_images"]:
         os.makedirs(os.path.join(base, sub), exist_ok=True)
 
