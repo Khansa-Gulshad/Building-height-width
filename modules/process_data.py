@@ -189,9 +189,11 @@ def download_facade_masks_for_point(
             save_full_color(city, image_id, mask_full)       # seg_full_vis/<id>.png (19-class color)
             save_three_color(city, image_id, mask3)        # seg_3class_vis/<id>.png (3-class color)
             
+            
             # optional QA overlay
             if save_sample:
-                save_overlay(city, image_id, np.array(img), mask3) # RGB + 3-class overlay
+                save_full_overlay(city, image_id, np.array(img),  # <-- new: RGB + 19-class color overlay
+                  mask_full, alpha=0.65, soften_sigma=0.8)
                 
             # record the 3-class visual path in the manifest
             mask_path = os.path.join(cfg.PROJECT_DIR, cfg.city_to_dir(city), "seg_3class_vis", f"{image_id}.png")
