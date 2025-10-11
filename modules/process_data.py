@@ -33,7 +33,7 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 # =========================
 def prepare_folders(city: str):
     base = os.path.join(cfg.PROJECT_DIR, cfg.city_to_dir(city))
-    for sub in ["seg_3class", "seg_qa", "sample_images"]:
+    for sub in ["seg_3class", "seg_qa", "sample_images", "seg_full_labels", "seg_full_vis"]:
         os.makedirs(os.path.join(base, sub), exist_ok=True)
 
 
@@ -131,19 +131,19 @@ def fetch_gsv_image_by_location(
 
 
 # =========================
-# SINGLE VIEW → 3-CLASS MASK
+# SINGLE VIEW →CLASS MASK
 # =========================
 def process_facade_view(img_pil, processor, model):
     """
-    Returns uint8 mask with values {0,1,2,3}; we use {1=building,2=sky,3=ground}.
+    Run segmentation on one frame.
+    Returns:
+      mask_full: uint8 (H,W) values 0..18
+      mask3    : uint8 (H,W) values {0,1,2,3} with 1=building,2=sky,3=ground
     """
     seg_full = segment_image(img_pil, processor, model)  # torch (H,W)
-    mask_full_np = seg_full.cpu().numpy().astype(np.int32)
-    save_full_label_mask(city, image_id, mask_full)   # seg_full_labels/<id>.png
-    save_full_color(city, image_id, mask_full)        # seg_full_vis/<id>.png  (pretty colors)
-    mask3 = remap_to_three(mask_full_np).astype(np.uint8)
-    return mask3
-
+    mask_full = seg_full.cpu().numpy().astype(np.uint8)
+    mask3 = remap_to_three(mask_full).astype(np.uint8)
+    return mask_full, mask3
 
 # =========================
 # PER-POINT RUNNER (two headings: road_angle ± 90°)
@@ -182,11 +182,15 @@ def download_facade_masks_for_point(
                 heading=h, pitch=pitch_deg, fov=fov_deg, size=size,
                 api_key=access_token
             )
-            mask3 = process_facade_view(img, processor, model)
+            # --- segment once, get both masks ---
+            mask_full, mask3 = process_facade_view(img, processor, model)
 
-            # save mask (grayscale PNG; values {0,1,2,3})
+            # --- save full 19-class artifacts ---
+            save_full_label_mask(city, image_id, mask_full)  # seg_full_labels/<id>.png
+            save_full_color(city, image_id, mask_full)       # seg_full_vis/<id>.png
+
+            # --- save 3-class label (optional but handy) ---
             mask_path = save_three_class_mask(city, image_id, mask3)
-
             # optional QA overlay
             if save_sample:
                 save_overlay(city, image_id, np.array(img), mask3)
