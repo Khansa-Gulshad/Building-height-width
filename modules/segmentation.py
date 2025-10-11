@@ -31,13 +31,19 @@ FULL_PALETTE = np.array([
     [119,  11,  32],  # 18 bicycle
 ], dtype=np.uint8)
 
+# >>> ADD THIS (you referenced PALETTE_3 below) <<<
+PALETTE_3 = np.array([
+    [0,   0,   0],    # 0 (unused)
+    [180, 180, 180],  # 1 building
+    [90,  180, 255],  # 2 sky
+    [140, 90,  40],   # 3 ground
+], dtype=np.uint8)
+
 def colorize_full(mask_full: np.ndarray) -> np.ndarray:
-    """Map 0..18 labels to RGB colors."""
     idx = np.clip(mask_full, 0, FULL_PALETTE.shape[0]-1)
     return FULL_PALETTE[idx]
 
 def save_full_label_mask(city: str, image_id: str, mask_full: np.ndarray, out_root: str | None = None):
-    """Save the raw 0..18 label raster (grayscale uint8)"""
     if out_root is None:
         out_root = cfg.PROJECT_DIR
     out_dir = os.path.join(out_root, cfg.city_to_dir(city), "seg_full_labels")
@@ -47,7 +53,6 @@ def save_full_label_mask(city: str, image_id: str, mask_full: np.ndarray, out_ro
     return path
 
 def save_full_color(city: str, image_id: str, mask_full: np.ndarray, out_root: str | None = None):
-    """Save the colorized 19-class visualization PNG"""
     if out_root is None:
         out_root = cfg.PROJECT_DIR
     out_dir = os.path.join(out_root, cfg.city_to_dir(city), "seg_full_vis")
@@ -58,12 +63,9 @@ def save_full_color(city: str, image_id: str, mask_full: np.ndarray, out_root: s
 
 def remap_to_three(mask_full: np.ndarray) -> np.ndarray:
     m = np.zeros_like(mask_full, dtype=np.uint8)
-    for i in SOURCE_BUILDING_IDS:
-        m[mask_full == i] = 1
-    for i in SOURCE_SKY_IDS:
-        m[mask_full == i] = 2
-    for i in SOURCE_GROUND_IDS:
-        m[mask_full == i] = 3
+    for i in SOURCE_BUILDING_IDS: m[mask_full == i] = 1
+    for i in SOURCE_SKY_IDS:      m[mask_full == i] = 2
+    for i in SOURCE_GROUND_IDS:   m[mask_full == i] = 3
     return m
 
 def colorize_three(mask3: np.ndarray) -> np.ndarray:
@@ -78,8 +80,7 @@ def overlay_rgb_with_mask(rgb: np.ndarray, mask3: np.ndarray, alpha=0.4) -> np.n
     out = (1.0 - alpha) * rgb + alpha * color
     return np.clip(out, 0, 255).astype(np.uint8)
 
-def _ensure_dir(p: str):
-    os.makedirs(p, exist_ok=True)
+def _ensure_dir(p: str): os.makedirs(p, exist_ok=True)
 
 def save_three_class_mask(city: str, image_id: str, mask3: np.ndarray, out_root: str | None = None):
     if out_root is None:
@@ -104,12 +105,8 @@ def visualize_results(city, image_id, image, segmentation_3class, num, out_root:
     if out_root is None:
         out_root = cfg.PROJECT_DIR
     fig, (ax1, ax2) = plt.subplots(nrows=1, ncols=2, figsize=(9, 4), sharey=True)
-    ax1.imshow(image)
-    ax1.set_title("Image")
-    ax1.axis("off")
-    ax2.imshow(colorize_three(segmentation_3class))
-    ax2.set_title("Segmentation (3 classes)")
-    ax2.axis("off")
+    ax1.imshow(image); ax1.set_title("Image"); ax1.axis("off")
+    ax2.imshow(colorize_three(segmentation_3class)); ax2.set_title("Segmentation (3 classes)"); ax2.axis("off")
     out_dir = os.path.join(out_root, cfg.city_to_dir(city), "sample_images")
     _ensure_dir(out_dir)
     fig.savefig(os.path.join(out_dir, f"{image_id}-{num}.png"), bbox_inches='tight', dpi=110)
