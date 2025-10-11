@@ -43,14 +43,6 @@ def colorize_full(mask_full: np.ndarray) -> np.ndarray:
     idx = np.clip(mask_full, 0, FULL_PALETTE.shape[0]-1)
     return FULL_PALETTE[idx]
 
-def save_full_label_mask(city: str, image_id: str, mask_full: np.ndarray, out_root: str | None = None):
-    if out_root is None:
-        out_root = cfg.PROJECT_DIR
-    out_dir = os.path.join(out_root, cfg.city_to_dir(city), "seg_full_labels")
-    _ensure_dir(out_dir)
-    path = os.path.join(out_dir, f"{image_id}.png")
-    Image.fromarray(mask_full.astype(np.uint8), mode="L").save(path)
-    return path
 
 def save_full_color(city: str, image_id: str, mask_full: np.ndarray, out_root: str | None = None):
     if out_root is None:
