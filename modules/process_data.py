@@ -186,8 +186,8 @@ def download_facade_masks_for_point(
             mask_full, mask3 = process_facade_view(img, processor, model)
 
             # --- save full 19-class artifacts ---
-            save_full_label_mask(city, image_id, mask_full)  # seg_full_labels/<id>.png
             save_full_color(city, image_id, mask_full)       # seg_full_vis/<id>.png
+            save_three_color(city, image_id, mask3)        # 3-class 
 
             # --- save 3-class label (optional but handy) ---
             mask_path = save_three_class_mask(city, image_id, mask3)
