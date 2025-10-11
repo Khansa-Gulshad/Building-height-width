@@ -21,7 +21,7 @@ from transformers import AutoImageProcessor, Mask2FormerForUniversalSegmentation
 # use your 3-class helpers from segmentation.py
 from modules.segmentation import (
     save_full_color, save_three_color,
-    remap_to_three, save_full_overlay
+    remap_to_three, save_full_overlay, save_rgb
 )
 import modules.config as cfg
 
@@ -33,7 +33,7 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 # =========================
 def prepare_folders(city: str):
     base = os.path.join(cfg.PROJECT_DIR, cfg.city_to_dir(city))
-    for sub in ["seg_3class_vis", "seg_full_vis", "seg_full_overlay", "seg_qa", "sample_images"]:
+    for sub in ["seg_3class_vis", "seg_full_vis", "seg_full_overlay", "seg_qa", "sample_images", "save_rgb"]:
         os.makedirs(os.path.join(base, sub), exist_ok=True)
 
 
@@ -186,6 +186,7 @@ def download_facade_masks_for_point(
             mask_full, mask3 = process_facade_view(img, processor, model)
 
             # --- save full 19-class artifacts ---
+            rgb_path = save_rgb(city, image_id, img)           # RGB for SIHE
             save_full_color(city, image_id, mask_full)       # seg_full_vis/<id>.png (19-class color)
             save_three_color(city, image_id, mask3)        # seg_3class_vis/<id>.png (3-class color)
             
