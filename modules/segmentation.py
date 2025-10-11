@@ -1,5 +1,6 @@
 import os
 import numpy as np
+from scipy.ndimage import gaussian_filter  # if available
 import matplotlib.pyplot as plt
 from PIL import Image
 import modules.config as cfg  # single source of truth for paths
@@ -78,13 +79,34 @@ def save_three_color(city: str, image_id: str, mask3: np.ndarray, out_root: str 
     Image.fromarray(colored).save(path)
     return path
 
-def overlay_rgb_with_mask(rgb: np.ndarray, mask3: np.ndarray, alpha=0.4) -> np.ndarray:
+def overlay_fullcolor(rgb: np.ndarray, mask_full: np.ndarray, alpha=0.65, soften_sigma=0.0) -> np.ndarray:
+    """Paper-style overlay: RGB + full 19-class color with stronger alpha."""
     if not isinstance(rgb, np.ndarray):
         rgb = np.array(rgb)
     rgb = rgb.astype(np.float32)
-    color = colorize_three(mask3).astype(np.float32)
+
+    # colorize with the Cityscapes-like palette you already defined
+    color = colorize_full(mask_full).astype(np.float32)
+
+    # optional softening to avoid harsh edges
+    if soften_sigma and soften_sigma > 0:
+        # blur per channel
+        color = np.stack([gaussian_filter(color[..., c], soften_sigma) for c in range(3)], axis=-1)
+
     out = (1.0 - alpha) * rgb + alpha * color
     return np.clip(out, 0, 255).astype(np.uint8)
+
+def save_full_overlay(city: str, image_id: str, rgb: np.ndarray, mask_full: np.ndarray,
+                      alpha=0.65, soften_sigma=0.8, out_root: str | None = None):
+    """Save a paper-like overlay using the full label palette."""
+    if out_root is None:
+        out_root = cfg.PROJECT_DIR
+    out_dir = os.path.join(out_root, cfg.city_to_dir(city), "seg_full_overlay")
+    os.makedirs(out_dir, exist_ok=True)
+    ov = overlay_fullcolor(rgb, mask_full, alpha=alpha, soften_sigma=soften_sigma)
+    path = os.path.join(out_dir, f"{image_id}_overlay.jpg")
+    Image.fromarray(ov).save(path, quality=95)
+    return path
 
 def _ensure_dir(p: str): os.makedirs(p, exist_ok=True)
 
@@ -97,15 +119,6 @@ def save_three_class_mask(city: str, image_id: str, mask3: np.ndarray, out_root:
     Image.fromarray(mask3, mode="L").save(path)
     return path
 
-def save_overlay(city: str, image_id: str, rgb: np.ndarray, mask3: np.ndarray, out_root: str | None = None):
-    if out_root is None:
-        out_root = cfg.PROJECT_DIR
-    qa_dir = os.path.join(out_root, cfg.city_to_dir(city), "seg_qa")
-    _ensure_dir(qa_dir)
-    ov = overlay_rgb_with_mask(rgb, mask3, alpha=0.4)
-    path = os.path.join(qa_dir, f"{image_id}_overlay.jpg")
-    Image.fromarray(ov).save(path, quality=92)
-    return path
 
 def visualize_results(city, image_id, image, segmentation_3class, num, out_root: str | None = None):
     if out_root is None:
