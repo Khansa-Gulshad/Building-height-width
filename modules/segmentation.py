@@ -123,7 +123,15 @@ def save_three_class_mask(city: str, image_id: str, mask3: np.ndarray, out_root:
     path = os.path.join(out_dir, f"{image_id}.png")
     Image.fromarray(mask3, mode="L").save(path)
     return path
-
+    
+def save_rgb(city: str, image_id: str, img_pil, out_root: str | None = None):
+    if out_root is None:
+        out_root = cfg.PROJECT_DIR
+    out_dir = os.path.join(out_root, cfg.city_to_dir(city), "sihe", "imgs")
+    os.makedirs(out_dir, exist_ok=True)
+    path = os.path.join(out_dir, f"{image_id}.jpg")
+    img_pil.save(path, quality=95)
+    return path
 
 def visualize_results(city, image_id, image, segmentation_3class, num, out_root: str | None = None):
     if out_root is None:
