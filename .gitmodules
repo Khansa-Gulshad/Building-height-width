@@ -1,0 +1,3 @@
+[submodule "external/neurvps"]
+	path = external/neurvps
+	url = https://github.com/zhou13/neurvps
