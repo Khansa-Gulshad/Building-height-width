@@ -90,11 +90,12 @@ def fetch_gsv_image_by_location(
     Raises RuntimeError with a clear message on failure.
     """
     assert api_key, "GSV API key required"
+    src = "&source=outdoor" if outdoor_only else ""
 
     # 1) Metadata: nearest pano_id
     meta_url = (
         "https://maps.googleapis.com/maps/api/streetview/metadata"
-        f"?location={lat},{lon}&radius={radius}&key={api_key}"
+        f"?location={lat},{lon}&radius={radius}{src}&key={api_key}"
     )
     mr = requests.get(meta_url, timeout=timeout)
     try:
@@ -111,7 +112,7 @@ def fetch_gsv_image_by_location(
     # 2) Image by pano
     url = (
         "https://maps.googleapis.com/maps/api/streetview"
-        f"?size={size}&pano={pano_id}&heading={heading}&pitch={pitch}&fov={fov}&key={api_key}"
+        f"?size={size}&pano={pano_id}&heading={heading}&pitch={pitch}&fov={fov}{src}&key={api_key}"
     )
 
     last_err = None
