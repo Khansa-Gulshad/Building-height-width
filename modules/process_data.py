@@ -81,7 +81,7 @@ def segment_image(image_pil, processor, model):
 # =========================
 def fetch_gsv_image_by_location(
     lat, lon, heading, pitch=6, fov=70, size="640x640",
-    api_key=None, retries=2, backoff=1.6, timeout=20, radius=300
+    api_key=None, retries=2, backoff=1.6, timeout=20, radius=300, outdoor_only=True
 ):
     """
     Robust Street View fetch:
