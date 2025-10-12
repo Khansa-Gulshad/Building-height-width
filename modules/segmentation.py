@@ -127,7 +127,7 @@ def save_three_class_mask(city: str, image_id: str, mask3: np.ndarray, out_root:
 def save_rgb(city: str, image_id: str, img_pil, out_root: str | None = None):
     if out_root is None:
         out_root = cfg.PROJECT_DIR
-    out_dir = os.path.join(out_root, cfg.city_to_dir(city), "sihe", "imgs")
+    out_dir = os.path.join(out_root, cfg.city_to_dir(city), "save_rgb", "imgs")
     os.makedirs(out_dir, exist_ok=True)
     path = os.path.join(out_dir, f"{image_id}.jpg")
     img_pil.save(path, quality=95)
