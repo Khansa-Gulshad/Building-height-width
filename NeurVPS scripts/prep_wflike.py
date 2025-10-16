@@ -15,6 +15,26 @@ Usage:
       --size 512
 
 Dependencies: pillow, numpy
+
+How to run it:
+# ensure deps once inside the container (or your env)
+pip install --user pillow numpy
+
+# run the script
+python scripts/make_wflike_dataset.py \
+  --src "$SIHE/data/images" \
+  --dst "$SIHE/data/wflike" \
+  --size 512
+
+This will create:
+$SIHE/data/wflike/
+  A/
+    2_190.png
+    2_190_label.npz
+    ...
+  valid.txt
+  test.txt
+  val.txt
 """
 import argparse
 import os
