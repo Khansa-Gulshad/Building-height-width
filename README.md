@@ -1,5 +1,6 @@
 # Building Area (width*Height) estimation
 
+## Code Structure
 
 ##  Apptainer environment (used for GPU eval)
 
