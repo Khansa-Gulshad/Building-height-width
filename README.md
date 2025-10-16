@@ -1,5 +1,9 @@
 # Building Area (width*Height) estimation
 
+## Repos used
+- external/neurvps (pinned commit)
+- sihe/misc/vps_models/{config.yaml, neurvps_sihe_checkpoint.pth.tar}
+
 ## Code Structure
 
 ##  Apptainer environment (used for GPU eval)
