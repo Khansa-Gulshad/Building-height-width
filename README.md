@@ -5,6 +5,7 @@
 - sihe/misc/vps_models/{config.yaml, neurvps_sihe_checkpoint.pth.tar}
 
 ## Code Structure
+```
 NeurVPS scripts/                # small utilities you ran/keep for reproducibility
   prep_wflike.py                # JPG -> 512×512 PNG + split lists
   make_su3_local.py             # NeurVPS's su3.yaml into a local YAML
@@ -37,10 +38,7 @@ sihe/                           # SIHE model + configs used
     su3_ds.yaml                       # configuration (NeurVPS YAMLs that we used)
     neurvps_sihe_checkpoint.pth.tar   # SIHE retrained model (tracked with Git LFS)
     config.yaml                       # SIHE’s reference config (kept for record)
-
-
-
-README.md                       # this file (workflow + instructions)
+```
 
 
 ##  Apptainer environment (used for GPU eval)
