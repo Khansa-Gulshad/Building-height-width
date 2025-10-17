@@ -50,8 +50,8 @@ sihe/                           # SIHE model + configs used
 - Run with `apptainer exec --nv ... pytorch_21.11-py3.sif`
 
 We bind:  
-- `$REPO/external/neurvps -> /w/neurvps`  
-- `$REPO/sihe         -> /w/SIHE`  
+- `$REPO/external/neurvps -> /w/neurvps`  (https://github.com/zhou13/neurvps)
+- `$REPO/sihe         -> /w/SIHE`  (https://github.com/yzre/SIHE?tab=readme-ov-file)
 - user base: `/users/scratch1/khansa/.pyuserbase -> /writable`
 
 We install in-container (user-space):  
