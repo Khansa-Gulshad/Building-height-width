@@ -52,7 +52,7 @@ sihe/                           # SIHE model + configs used
 We bind:  
 - `$REPO/external/neurvps` -> /w/[neurvps](https://github.com/zhou13/neurvps)
 - `$REPO/sihe`         -> /w/[SIHE](https://github.com/yzre/SIHE?tab=readme-ov-file)
-- user base: `/users/scratch1/khansa/.pyuserbase -> /writable`
+
 
 We install in-container (user-space):  
 `docopt "tensorboardX<3" "protobuf<4" yacs pyyaml tqdm opencv-python-headless scikit-image scipy ninja pillow imageio numpy`
