@@ -5,6 +5,42 @@
 - sihe/misc/vps_models/{config.yaml, neurvps_sihe_checkpoint.pth.tar}
 
 ## Code Structure
+NeurVPS scripts/                # small utilities you ran/keep for reproducibility
+  prep_wflike.py                # JPG -> 512×512 PNG + split lists
+  make_su3_local.py             # NeurVPS's su3.yaml into a local YAML
+  run_eval.py                   # wrapper to run NeurVPS eval.py and dump predictions
+  vpt_postprocess.py            # 3D→2D VP transform (FOV, ordering, scaling)
+
+data/                           # default folder for placing the data
+  images/                       # original street-view JPG images (inputs)
+  wflike/                       # "wireframe-like" dataset view for NeurVPS
+    valid.txt                   # split list (relative paths like A/xxx.png)
+    test.txt
+    val.txt
+  vpts/                         # outputs from NeurVPS + post-processing
+    000000.npz ...              # raw model outputs (contain vpts_pd)
+    su3_error.npz               # AA curve file (unused for you; safe to ignore)
+    json/                       # per-image 2D VP results (ordered + scaled)
+      <image_stem>.json
+    overlays/                   # optional visualization overlays (PNG)
+
+external/                       # third-party code
+  neurvps/                      # NeurVPS repo at commit 72d9502
+
+modules/
+  process_data.py              # to fetch and segment street view images
+  road_network.py              # to fetch road network
+  segmentation.py              # segmentation classes
+  
+sihe/                           # SIHE model + configs used
+  vps_models/
+    su3_ds.yaml                       # configuration (NeurVPS YAMLs that we used)
+    neurvps_sihe_checkpoint.pth.tar   # SIHE retrained model (tracked with Git LFS)
+    config.yaml                       # SIHE’s reference config (kept for record)
+
+
+
+README.md                       # this file (workflow + instructions)
 
 
 ##  Apptainer environment (used for GPU eval)
