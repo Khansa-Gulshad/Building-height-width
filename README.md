@@ -1,4 +1,4 @@
-# Building Area (width*Height) estimation
+# Building Area (Width*Height) estimation
 
 ## Repos used
 - external/neurvps (pinned commit)
