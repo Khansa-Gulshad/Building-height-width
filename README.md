@@ -5,37 +5,7 @@
 - sihe/misc/vps_models/{config.yaml, neurvps_sihe_checkpoint.pth.tar}
 
 ## Code Structure
-Building-height-width/
-├─ external/
-│  └─ neurvps/                # the original NeurVPS repo (pinned)
-├─ sihe/
-│  └─ misc/vps_models/
-│     ├─ config.yaml          # SIHE config (as you had)
-│     ├─ neurvps_sihe_checkpoint.pth.tar   # SIHE retrained model (LFS)
-│     └─ su3_ds.yaml          # local YAML we generated (datadir -> wflike)
-├─ data/
-│  ├─ images/                 # your original JPGs (inputs)
-│  ├─ wflike/
-│  │  ├─ A/                   # 512×512 PNGs + *_label.npz (dummy)
-│  │  ├─ valid.txt
-│  │  ├─ test.txt
-│  │  └─ val.txt
-│  └─ vpts/
-│     ├─ 000000.npz, ...      # raw eval outputs (index-matched to valid.txt)
-│     ├─ su3_error.npz
-│     ├─ preds.csv            # our post-processed 2D points (ordered)
-│     ├─ json/                # one JSON per image with 2D+3D VPs
-│     └─ overlays/            # optional preview PNGs with red crosses
-├─ apptainer/
-│  └─ README.md               # notes on the CUDA11 container you used
-├─ scripts/
-│  ├─ 10_prep_wflike.py
-│  ├─ 20_eval_neurvps.sh
-│  ├─ 30_postprocess_vpts.py
-│  └─ 40_overlay_one.py
-├─ .gitattributes             # LFS tracking for big files
-├─ .gitignore
-└─ README.md
+
 
 ##  Apptainer environment (used for GPU eval)
 
