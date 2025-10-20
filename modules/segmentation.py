@@ -151,3 +151,17 @@ def save_images(city, image_id, images, pickles, out_root: str | None = None):
     for i, (img, mask3) in enumerate(zip(images, pickles), start=1):
         img_np = np.array(img) if not isinstance(img, np.ndarray) else img
         visualize_results(city, image_id, img_np, mask3, i, out_root=out_root)
+
+def save_three_class_npz(city: str, image_id: str, mask3: np.ndarray, out_root: str | None = None):
+    """
+    Save the 3-class label as NPZ with key 'seg' (uint8), which SIHE's filesIO.load_seg_array reads.
+    Path: <PROJECT>/<City>/seg/<image_id>_seg.npz
+    """
+    if out_root is None:
+        out_root = cfg.PROJECT_DIR
+    out_dir = os.path.join(out_root, cfg.city_to_dir(city), "seg")
+    _ensure_dir(out_dir)
+    path = os.path.join(out_dir, f"{image_id}_seg.npz")
+    np.savez(path, seg=mask3.astype(np.uint8))
+    return path
+
