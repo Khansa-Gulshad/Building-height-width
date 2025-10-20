@@ -10,7 +10,7 @@ from collections import Counter
 from lineDrawingConfig import *
 from lineRefinement import *
 from sklearn.cluster import DBSCAN
-np
+
 
 def _seg_dir(p1, p2):          # (y,x) inputs
     vx = p2[1] - p1[1]; vy = p2[0] - p1[0]
