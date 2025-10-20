@@ -1,50 +1,84 @@
-# -*-encoding:utf-8 -*-
-
+import os, json
 import numpy as np
-import skimage
+import skimage.io
 import matplotlib.pyplot as plt
 
 def load_vps_2d(filename):
     """
-    load vanishing points
-    :param filename:
-    :return:
+    Load vanishing points (2D pixel coords) as a (3,2) array ordered:
+      [v1_right, v2_left, v3_vertical].
+    Supports:
+      - JSON with {"vpts_2d_ordered": {"v1_right":[x,y],"v2_left":[x,y],"v3_vertical":[x,y]}}
+      - NPZ with keys: 'vpts_re'  (already 2D)
+      - NPZ with keys: 'vpts_2d'  (already 2D)
+      - NPZ with 'vpts_pd' (3D dirs)  -> not converted here; prefer using your JSON.
     """
-    with np.load(filename) as npz:
-        vpts_pd_2d = npz['vpts_re']
-    return vpts_pd_2d
+    ext = os.path.splitext(filename)[1].lower()
+    if ext == ".json":
+        d = json.load(open(filename, "r"))
+        o = d.get("vpts_2d_ordered", {})
+        arr = np.array([o["v1_right"], o["v2_left"], o["v3_vertical"]], dtype=float)
+        return arr
 
+    with np.load(filename) as npz:
+        for k in ("vpts_re", "vpts_2d"):
+            if k in npz:
+                arr = np.array(npz[k], dtype=float)
+                if arr.shape == (3,2):
+                    return arr
+        if "vpts_pd" in npz:
+            # 3D directions present but not projected here (needs intrinsics & FOV).
+            raise ValueError(
+                f"{filename} contains 'vpts_pd' (3D). "
+                "Use the JSON we wrote in /data/vpts/json or convert 3D→2D before calling load_vps_2d."
+            )
+
+    raise ValueError(f"Unrecognized VPS format: {filename}")
 
 def load_line_array(filename):
     """
-    load lines as well as scores.
-    :param filename:
-    :return:
+    Load LCNN line segments and scores.
+    Returns:
+      lines: (N,2,2) in [y,x] order; scores: (N,)
     """
     with np.load(filename) as npz:
-        nlines = npz["nlines"]
-        nscores = npz["nscores"]
-
-    return nlines, nscores
-
+        if "nlines" in npz and "nscores" in npz:
+            return npz["nlines"], npz["nscores"]
+        # fallback to demo-style keys
+        if "lines" in npz and "score" in npz:
+            return npz["lines"], npz["score"]
+    raise ValueError(f"Unrecognized lines format: {filename}")
 
 def load_seg_array(filename):
     """
-    load segmentation results, the values represent different labels.
-    :param filename:
-    :return:
+    Load semantic segmentation label map as HxW int array.
+    Supports:
+      - NPZ with key 'seg'
+      - PNG/JPG (assumed single-channel label image)
     """
-    with np.load(filename) as npz:
-        seg_array = npz["seg"]
-    return seg_array
-
+    ext = os.path.splitext(filename)[1].lower()
+    if ext == ".npz":
+        with np.load(filename) as npz:
+            if "seg" in npz:
+                return np.array(npz["seg"])
+            # fallback keys if your generator used a different name
+            for k in ("label", "labels", "mask"):
+                if k in npz:
+                    return np.array(npz[k])
+        raise ValueError(f"Unrecognized seg npz format: {filename}")
+    else:
+        arr = skimage.io.imread(filename)
+        # if RGB, take first channel (you can customize if needed)
+        if arr.ndim == 3:
+            arr = arr[..., 0]
+        return arr.astype(np.int32)
 
 def load_zgts(filename):
     """
-    load the ground truth image of z values, if exists.
-    :param filename:
-    :return:
+    Load ground-truth height map if present (HxW, float or int).
+    NPZ with key 'height'.
     """
     with np.load(filename) as npz:
-        zgt = npz["height"]
-    return zgt
+        if "height" in npz:
+            return np.array(npz["height"])
+    raise ValueError(f"Unrecognized zgt format: {filename}")
