@@ -10,8 +10,7 @@ from collections import Counter
 from lineDrawingConfig import *
 from lineRefinement import *
 from sklearn.cluster import DBSCAN
-# inside lineClassification.py (add near existing imports)
-import numpy as np
+np
 
 def _seg_dir(p1, p2):          # (y,x) inputs
     vx = p2[1] - p1[1]; vy = p2[0] - p1[0]
@@ -134,8 +133,8 @@ def check_if_line_lies_in_building_area(seg_img, a, b, config)->bool:
     for pcl in point_check_list:
         total_num = total_num + 1
         # swap the x,y coordinate
-        y_int = np.cast["int"](pcl[0] + 0.5)
-        x_int = np.cast["int"](pcl[1] + 0.5)
+        y_int = int(pcl[0] + 0.5)
+        x_int = int(pcl[1] + 0.5)
         if x_int < 0 or x_int > cols - 1 or y_int < 0 or y_int > rows - 1:
             local_num = local_num + 1
             continue
@@ -476,7 +475,7 @@ def filter_lines_outof_building_ade20k(imgfile, lines, line_scores, segimg, vpts
         plt.close()
 
     # return vert_line_merge, bottom_lines, roof_lines
-    return vert_line_merge
+    return vert_line_merge, hori0_lines, hori1_lines
 
 
 def clausterLinesWithCenters(ht_set, config, using_height=False):
