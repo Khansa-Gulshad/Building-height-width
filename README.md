@@ -12,6 +12,9 @@ NeurVPS scripts/                # small utilities you ran/keep for reproducibili
   run_eval.py                   # wrapper to run NeurVPS eval.py and dump predictions
   vpt_postprocess.py            # 3D→2D VP transform (FOV, ordering, scaling)
 
+Config/
+  config/
+    estimation_config.ini
 data/                           # default folder for placing the data
   images/                       # original street-view JPG images (inputs)
   wflike/                       # "wireframe-like" dataset view for NeurVPS
