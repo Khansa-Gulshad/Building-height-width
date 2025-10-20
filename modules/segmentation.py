@@ -39,11 +39,12 @@ FULL_PALETTE = np.array([
 
 # >>> ADD THIS (you referenced PALETTE_3 below) <<<
 PALETTE_3 = np.array([
-    [0,   0,   0],    # 0 (unused)
-    [180, 180, 180],  # 1 building
-    [90,  180, 255],  # 2 sky
-    [140, 90,  40],   # 3 ground
+    [140,  90,  40],  # 0 ground (brown)
+    [180, 180, 180],  # 1 building (gray)
+    [ 90, 180, 255],  # 2 sky (light blue)
 ], dtype=np.uint8)
+
+
 
 def colorize_full(mask_full: np.ndarray) -> np.ndarray:
     idx = np.clip(mask_full, 0, FULL_PALETTE.shape[0]-1)
@@ -60,14 +61,14 @@ def save_full_color(city: str, image_id: str, mask_full: np.ndarray, out_root: s
     return path
 
 def remap_to_three(mask_full: np.ndarray) -> np.ndarray:
-    m = np.zeros_like(mask_full, dtype=np.uint8)
+    m = np.zeros_like(mask_full, dtype=np.uint8)   # start as ground=0
     for i in SOURCE_BUILDING_IDS: m[mask_full == i] = 1
     for i in SOURCE_SKY_IDS:      m[mask_full == i] = 2
-    for i in SOURCE_GROUND_IDS:   m[mask_full == i] = 3
+    # ground remains 0
     return m
 
 def colorize_three(mask3: np.ndarray) -> np.ndarray:
-    idx = np.clip(mask3, 0, 3)
+    idx = np.clip(mask3, 0, 2)
     return PALETTE_3[idx]
     
 def save_three_color(city: str, image_id: str, mask3: np.ndarray, out_root: str | None = None):
