@@ -20,8 +20,8 @@ from transformers import AutoImageProcessor, Mask2FormerForUniversalSegmentation
 
 # use your 3-class helpers from segmentation.py
 from modules.segmentation import (
-    save_full_color, save_three_color,
-    remap_to_three, save_full_overlay, save_rgb
+    save_full_color, save_three_color, remap_to_three, save_full_overlay, save_rgb,
+    save_three_class_mask, save_three_class_npz   # <-- add these two
 )
 import modules.config as cfg
 
@@ -33,9 +33,8 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 # =========================
 def prepare_folders(city: str):
     base = os.path.join(cfg.PROJECT_DIR, cfg.city_to_dir(city))
-    for sub in ["seg_3class_vis", "seg_full_vis", "seg_full_overlay", "seg_qa", "sample_images", "save_rgb"]:
+    for sub in ["seg", "seg_3class", "seg_3class_vis", "seg_full_vis", "seg_full_overlay", "seg_qa", "sample_images", "save_rgb"]:
         os.makedirs(os.path.join(base, sub), exist_ok=True)
-
 
 # =========================
 # MODEL LOADING
@@ -190,6 +189,10 @@ def download_facade_masks_for_point(
             rgb_path = save_rgb(city, image_id, img)           # RGB for SIHE
             save_full_color(city, image_id, mask_full)       # seg_full_vis/<id>.png (19-class color)
             save_three_color(city, image_id, mask3)        # seg_3class_vis/<id>.png (3-class color)
+
+            # --- save the actual LABELS SIHE will consume ---
+            label_png  = save_three_class_mask(city, image_id, mask3)     # -> <City>/seg_3class/<id>.png (grayscale IDs)
+            label_npz  = save_three_class_npz(city, image_id, mask3)      # -> <City>/seg/<id>_seg.npz   (seg=mask3)
             
             
             # optional QA overlay
@@ -200,7 +203,7 @@ def download_facade_masks_for_point(
             # record the 3-class visual path in the manifest
             mask_path = os.path.join(cfg.PROJECT_DIR, cfg.city_to_dir(city), "seg_3class_vis", f"{image_id}.png")
            
-            records.append([image_id, mask_path, h, pitch_deg, fov_deg])
+            records.append([image_id, label_npz, h, pitch_deg, fov_deg])
         except Exception as e:
             records.append([image_id, f"ERROR: {e}", h, pitch_deg, fov_deg])
 
