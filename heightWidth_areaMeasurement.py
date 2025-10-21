@@ -209,7 +209,7 @@ def heightCalc(fname_dict, intrins, config, img_size=None, pitch=None,
             plt.close()
 
         # ===== 3) Classify & refine lines =====
-       verticals, hori0_lines, hori1_lines, bottom_lines, roof_lines = filter_lines_outof_building_ade20k(
+        verticals, hori0_lines, hori1_lines, bottom_lines, roof_lines = filter_lines_outof_building_ade20k(
             img_fname, line_segs, scores, seg_img, vps, config,
             use_vertical_vpt_only=use_pitch_only, verbose=verbose
         )
@@ -274,11 +274,18 @@ def heightCalc(fname_dict, intrins, config, img_size=None, pitch=None,
         if use_detected_vpt_only and (vps0_d3 is not None):
             cam_h = float(config["STREET_VIEW"]["CameraHeight"])
             
-            if ext_bottoms:
-        # Measure widths off extended bottoms using v1-right direction and the (v2, v3) vanishing line
+            def add_widths_from(lines, v_dir, v_a, v_b, grp_id):
+                for ln in lines:
+                    ax, bx = ln[0], ln[1]      # [y,x]
+                    a_cam = np.matmul(invK, np.array([ax[1], ax[0], 1.0]))
+                    b_cam = np.matmul(invK, np.array([bx[1], bx[0], 1.0]))
+                    wval = sv_measurement_along(v_dir, v_a, v_b, a_cam, b_cam, zc=cam_h)
+                    wd_set.append([wval, ax, bx, grp_id])
+
+    # Prefer extended bottom baselines; otherwise fall back to raw horizontals
+            if len(ext_bottoms) > 0:
                 add_widths_from(ext_bottoms, vps0_d3, vps1_d3, vps2_d3, grp_id=0)
             else:
-        # Fallback: use the raw (short) horizontal buckets
                 add_widths_from(hori0_lines, vps0_d3, vps1_d3, vps2_d3, grp_id=0)  # v1-right aligned
                 add_widths_from(hori1_lines, vps1_d3, vps0_d3, vps2_d3, grp_id=1)  # v2-left aligned
         else:
