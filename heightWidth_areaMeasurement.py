@@ -209,7 +209,7 @@ def heightCalc(fname_dict, intrins, config, img_size=None, pitch=None,
             plt.close()
 
         # ===== 3) Classify & refine lines =====
-        verticals, hori0_lines, hori1_lines = filter_lines_outof_building_ade20k(
+       verticals, hori0_lines, hori1_lines, bottom_lines, roof_lines = filter_lines_outof_building_ade20k(
             img_fname, line_segs, scores, seg_img, vps, config,
             use_vertical_vpt_only=use_pitch_only, verbose=verbose
         )
