@@ -216,6 +216,17 @@ def heightCalc(fname_dict, intrins, config, img_size=None, pitch=None,
         # extend verticals (roof<->ground)
         verticals = verticalLineExtending(img_fname, verticals, seg_img, [vps[2, 1], vps[2, 0]], config)
 
+        ext_bottoms = horizontalLineExtending(
+        img_name=img_fname,
+        horizontal_lines=bottom_lines,
+        segimg=seg_img,
+        vpt1_xy=(float(vps[0, 0]), float(vps[0, 1])),  # right-H VP
+        vpt2_xy=(float(vps[1, 0]), float(vps[1, 1])),  # left-H VP
+        config=config,
+        refine_with_vp=True,
+        verbose=verbose
+        )
+
         # ===== 4) Heights (always) =====
         invK = np.linalg.inv(intrins)
 
@@ -262,19 +273,14 @@ def heightCalc(fname_dict, intrins, config, img_size=None, pitch=None,
         wd_set = []
         if use_detected_vpt_only and (vps0_d3 is not None):
             cam_h = float(config["STREET_VIEW"]["CameraHeight"])
-
-            def add_widths_from(lines, v_dir, v_a, v_b, grp_id):
-                for ln in lines:
-                    ax, bx = ln[0], ln[1]      # [y,x]
-                    a_cam = np.matmul(invK, np.array([ax[1], ax[0], 1.0]))
-                    b_cam = np.matmul(invK, np.array([bx[1], bx[0], 1.0]))
-                    wval = sv_measurement_along(v_dir, v_a, v_b, a_cam, b_cam, zc=cam_h)
-                    wd_set.append([wval, ax, bx, grp_id])
-
-            # hori0 aligned with v1_right → use vanishing line from (v2_left, v3_vertical)
-            add_widths_from(hori0_lines, vps0_d3, vps1_d3, vps2_d3, grp_id=0)
-            # hori1 aligned with v2_left  → use vanishing line from (v1_right, v3_vertical)
-            add_widths_from(hori1_lines, vps1_d3, vps0_d3, vps2_d3, grp_id=1)
+            
+            if ext_bottoms:
+        # Measure widths off extended bottoms using v1-right direction and the (v2, v3) vanishing line
+                add_widths_from(ext_bottoms, vps0_d3, vps1_d3, vps2_d3, grp_id=0)
+            else:
+        # Fallback: use the raw (short) horizontal buckets
+                add_widths_from(hori0_lines, vps0_d3, vps1_d3, vps2_d3, grp_id=0)  # v1-right aligned
+                add_widths_from(hori1_lines, vps1_d3, vps0_d3, vps2_d3, grp_id=1)  # v2-left aligned
         else:
             if verbose:
                 print("[width] skipped: need detected VPs (use_detected_vpt_only=1).")
