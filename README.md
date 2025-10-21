@@ -7,7 +7,12 @@
 ## Code Structure
 ```
 Gdańsk, Poland/                 # example results
-  
+  save_rgb/           
+    imgs                        # rgb images
+  seg                           # .npz files
+  seg_3class_vis                # 3 classes segmented images
+  seg_full_overlay              # segmented overlay with rgb
+  seg_full_vis                  # all classes (Cityscapes) segmented images
 NeurVPS scripts/                # small utilities you ran/keep for reproducibility
   prep_wflike.py                # JPG -> 512×512 PNG + split lists
   make_su3_local.py             # NeurVPS's su3.yaml into a local YAML
