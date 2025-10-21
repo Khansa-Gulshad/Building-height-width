@@ -15,7 +15,7 @@ from lineRefinement import lineRefinementWithVPT, pointOnLine
 
 def _parse_label_list(config, key):
     """Parse comma-separated label list (e.g., '2,3') into a set of ints."""
-    return set(int(x.strip()) for x in str(cfg["SEGMENTATION"][key]).split(",") if x.strip())
+    return set(int(x.strip()) for x in str(config["SEGMENTATION"][key]).split(",") if x.strip())
 
 def _seg_dir(p1, p2):  # p1,p2 are (y,x)
     vx = p2[1] - p1[1]
