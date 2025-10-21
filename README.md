@@ -6,6 +6,8 @@
 
 ## Code Structure
 ```
+Gdańsk, Poland/                 # example results
+  
 NeurVPS scripts/                # small utilities you ran/keep for reproducibility
   prep_wflike.py                # JPG -> 512×512 PNG + split lists
   make_su3_local.py             # NeurVPS's su3.yaml into a local YAML
