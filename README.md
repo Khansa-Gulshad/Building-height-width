@@ -43,8 +43,8 @@ modules/
 sihe/                           # SIHE model + configs used
   vps_models/
     su3_ds.yaml                       # configuration (NeurVPS YAMLs that we used)
-    neurvps_sihe_checkpoint.pth.tar   # SIHE retrained model (tracked with Git LFS)
-    config.yaml                       # SIHE’s reference config (kept for record)
+    neurvps_sihe_checkpoint.pth.tar   # SIHE retrained model
+    config.yaml                       # SIHE’s reference config
 ```
 
 
