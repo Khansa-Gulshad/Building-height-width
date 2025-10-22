@@ -21,16 +21,18 @@ config/
     estimation_config.ini
 data/                           # default folder for placing the data
   images/                       # original street-view JPG images (inputs)
-  wflike/                       # "wireframe-like" dataset view for NeurVPS
-    valid.txt                   # split list (relative paths like A/xxx.png)
-    test.txt
-    val.txt
+  lines/                        # .npz and .svg files from LCNN model
   vpts/                         # outputs from NeurVPS + post-processing
     000000.npz ...              # raw model outputs (contain vpts_pd)
     su3_error.npz               # AA curve file (unused for you; safe to ignore)
     json/                       # per-image 2D VP results (ordered + scaled)
       <image_stem>.json
     overlays/                   # optional visualization overlays (PNG)
+  wflike/                       # "wireframe-like" dataset view for NeurVPS
+    valid.txt                   # split list (relative paths like A/xxx.png)
+    test.txt
+    val.txt
+  
 
 external/                       # third-party code
   neurvps/                      # NeurVPS repo at commit 72d9502
@@ -59,7 +61,7 @@ sihe/                           # SIHE model + configs used
 We bind:  
 - `$REPO/external/neurvps` -> /w/[neurvps](https://github.com/zhou13/neurvps)
 - `$REPO/sihe`         -> /w/[SIHE](https://github.com/yzre/SIHE?tab=readme-ov-file)
-
+- `$REPO/LCNN`         -> /w/[LCNN](https://github.com/zhou13/lcnn)
 
 We install in-container (user-space):  
 `docopt "tensorboardX<3" "protobuf<4" yacs pyyaml tqdm opencv-python-headless scikit-image scipy ninja pillow imageio numpy`
