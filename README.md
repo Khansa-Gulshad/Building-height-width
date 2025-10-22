@@ -11,7 +11,7 @@ Gdańsk, Poland/                 # segmentation output
   seg_3class_vis                # 3 classes segmented images
   seg_full_overlay              # segmented overlay with rgb
   seg_full_vis                  # all classes (Cityscapes) segmented images
-NeurVPS scripts/                # small utilities you ran/keep for reproducibility
+NeurVPS scripts/                # code keep for reproducibility of NeurVPS
   prep_wflike.py                # JPG -> 512×512 PNG + split lists
   make_su3_local.py             # NeurVPS's su3.yaml into a local YAML
   run_eval.py                   # wrapper to run NeurVPS eval.py and dump predictions
