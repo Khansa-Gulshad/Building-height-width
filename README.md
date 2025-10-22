@@ -4,10 +4,10 @@
 
 ## Code Structure
 ```
-Gdańsk, Poland/                 # example results
+Gdańsk, Poland/                 # segmentation output
   save_rgb/           
     imgs                        # rgb images
-  seg                           # .npz files
+  seg                           # .npz files having label for each class
   seg_3class_vis                # 3 classes segmented images
   seg_full_overlay              # segmented overlay with rgb
   seg_full_vis                  # all classes (Cityscapes) segmented images
