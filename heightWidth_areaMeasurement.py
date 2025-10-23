@@ -1,7 +1,5 @@
 # -*- encoding:utf-8 -*-
 
-# -*- encoding:utf-8 -*-
-
 import os
 import copy
 import numpy as np
@@ -193,40 +191,34 @@ def heightCalc(fname_dict, intrins, config, img_size=None, pitch=None,
         # ===== 1) Vanishing points (image coords) =====
         w, h = img_size
         focal_length = intrins[0, 0]
-        
+
+        loaded_detected_vps = False  # tracks if we have detected horizontals (v1,v2)
         if use_pitch_only:
-    # Heights only; widths will be skipped
+            # Heights only; widths will be skipped
             vps = np.zeros((3, 2), float)
             vertical_v, vline = vp_calculation_with_pitch(w, h, pitch, focal_length)
             if vertical_v[2] == 0:
                 vertical_v[0], vertical_v[1] = 320, -9999999
             vps[2, :] = vertical_v[:2]
         else:
-    # Load 2D VPs from JSON (recommended) or project from NPZ
-            vps = load_vps_2d(vpt_fname, img_width=w, focal_length_px=focal_length)
+            # Load 2D VPs (JSON preferred; NPZ allowed if your filesIO supports 3D->2D projection)
+            if vpt_fname.lower().endswith(".json"):
+                vps = load_vps_2d(vpt_fname)  # returns (3,2) ordered
+            elif vpt_fname.lower().endswith(".npz"):
+                vps = load_vps_2d(vpt_fname, img_width=w, focal_length_px=focal_length)
+            else:
+                raise IOError("vpt file not found or unsupported")
 
-    # Always compute pitch-derived vertical+horizon to stabilize heights
+            loaded_detected_vps = True  # we have horizontals
+
+            # Always compute pitch-derived vertical+horizon to stabilize heights
             vertical_v, vline = vp_calculation_with_pitch(w, h, pitch, focal_length)
             if vertical_v[2] == 0:
                 vertical_v[0], vertical_v[1] = 320, -9999999
 
-    # HYBRID by default: keep detected horizontals (v1,v2), replace vertical (v3)
+            # HYBRID by default: keep detected horizontals (v1,v2), replace vertical (v3)
             if not use_detected_vpt_only:
                 vps[2, :] = vertical_v[:2]
-
-        elif vpt_fname.endswith(".npz"):
-            # Load detected VPs (pixels): [v1_right, v2_left, v3_vertical]
-            vps = load_vps_2d(vpt_fname)
-            loaded_detected_vps = True
-
-            # Hybrid: replace vertical with pitch-derived one (keeps horizon stable)
-            if not use_detected_vpt_only:
-                vertical_v, vline = vp_calculation_with_pitch(w, h, pitch, focal_length)
-                if vertical_v[2] == 0:
-                    vertical_v[0], vertical_v[1] = 320, -9999999
-                vps[2, :] = vertical_v[:2]
-        else:
-            raise IOError("vpt file not found or unsupported")
 
         # ===== 2) Load LCNN lines + segmentation =====
         line_segs, scores = load_line_array(line_fname)  # (N,2,2) in [y,x]
@@ -257,7 +249,7 @@ def heightCalc(fname_dict, intrins, config, img_size=None, pitch=None,
 
         # Extend bottom horizontals across façade (only if we have detected horizontals)
         ext_bottoms = []
-        if loaded_detected_vps:
+        if loaded_detected_vps and not use_pitch_only:
             ext_bottoms = horizontalLineExtending(
                 img_name=img_fname,
                 horizontal_lines=bottom_lines,
@@ -272,12 +264,15 @@ def heightCalc(fname_dict, intrins, config, img_size=None, pitch=None,
         # ===== 4) Heights (always) =====
         invK = np.linalg.inv(intrins)
 
-        # Build normalized camera-frame VPs (only if detected were loaded)
+        # Build normalized camera-frame VPs (only if any detected VPs were loaded)
         vps0_d3 = vps1_d3 = vps2_d3 = None
+        have_horiz_vps = False
         if loaded_detected_vps:
-            vps0_d3 = np.matmul(invK, np.array([vps[0, 0], vps[0, 1], 1.0]))
-            vps1_d3 = np.matmul(invK, np.array([vps[1, 0], vps[1, 1], 1.0]))
-            vps2_d3 = np.matmul(invK, np.array([vps[2, 0], vps[2, 1], 1.0]))
+            vps0_d3 = invK @ np.array([vps[0, 0], vps[0, 1], 1.0])
+            vps1_d3 = invK @ np.array([vps[1, 0], vps[1, 1], 1.0])
+            vps2_d3 = invK @ np.array([vps[2, 0], vps[2, 1], 1.0])
+            # We consider horizontals present if v1 & v2 are finite
+            have_horiz_vps = np.all(np.isfinite(vps0_d3)) and np.all(np.isfinite(vps1_d3))
 
         ht_set = []
         seen = set()
@@ -321,26 +316,24 @@ def heightCalc(fname_dict, intrins, config, img_size=None, pitch=None,
 
         # ===== 5) Widths (only when horizontal VPs exist) =====
         wd_set = []
-        if not use_pitch_only:  # we have detected horizontals available
+        if have_horiz_vps and not use_pitch_only:
             cam_h = float(config["STREET_VIEW"]["CameraHeight"])
 
-        if have_horiz_vps:
-            cam_h = float(config["STREET_VIEW"]["CameraHeight"])
-
-                def add_widths_from(lines, v_dir, v_a, v_b, grp_id):
-                    for ln in lines:
-                        ax, bx = ln[0], ln[1]
-                        a_cam = np.matmul(invK, np.array([ax[1], ax[0], 1.0]))
-                        b_cam = np.matmul(invK, np.array([bx[1], bx[0], 1.0]))
-                        wval = sv_measurement_along(v_dir, v_a, v_b, a_cam, b_cam, zc=cam_h)
-                        wd_set.append([wval, ax, bx, grp_id])
+            def add_widths_from(lines, v_dir, v_a, v_b, grp_id):
+                for ln in lines:
+                    ax, bx = ln[0], ln[1]
+                    a_cam = invK @ np.array([ax[1], ax[0], 1.0])
+                    b_cam = invK @ np.array([bx[1], bx[0], 1.0])
+                    wval = sv_measurement_along(v_dir, v_a, v_b, a_cam, b_cam, zc=cam_h)
+                    wd_set.append([wval, ax, bx, grp_id])
 
             # Prefer extended bottom baselines; otherwise use raw horizontal buckets
             if len(ext_bottoms) > 0:
+                # ext_bottoms contain generic horizontals; use v1 as v_dir by default
                 add_widths_from(ext_bottoms, vps0_d3, vps1_d3, vps2_d3, grp_id=0)
             else:
-                add_widths_from(hori0_lines,  vps0_d3, vps1_d3, vps2_d3, grp_id=0)  # v1-right aligned
-                add_widths_from(hori1_lines,  vps1_d3, vps0_d3, vps2_d3, grp_id=1)  # v2-left  aligned
+                add_widths_from(hori0_lines, vps0_d3, vps1_d3, vps2_d3, grp_id=0)  # v1-right aligned
+                add_widths_from(hori1_lines, vps1_d3, vps0_d3, vps2_d3, grp_id=1)  # v2-left  aligned
         else:
             if verbose:
                 print("[width] skipped: need detected horizontal VPs (v1 & v2).")
@@ -439,8 +432,4 @@ def heightCalc(fname_dict, intrins, config, img_size=None, pitch=None,
         print("heightCalc error:", str(e))
         return None
 
-    except IOError:
-        print("file does not exist\n")
 
-    except IOError:
-        print("file does not exist\n")
