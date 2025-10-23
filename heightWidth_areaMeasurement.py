@@ -193,18 +193,26 @@ def heightCalc(fname_dict, intrins, config, img_size=None, pitch=None,
         # ===== 1) Vanishing points (image coords) =====
         w, h = img_size
         focal_length = intrins[0, 0]
-
-        loaded_detected_vps = False
-        vertical_v = None
-        vline = None
-
+        
         if use_pitch_only:
-            # Only vertical VP + horizon (no detected horizontals)
-            vps = np.zeros([3, 2])
+    # Heights only; widths will be skipped
+            vps = np.zeros((3, 2), float)
             vertical_v, vline = vp_calculation_with_pitch(w, h, pitch, focal_length)
             if vertical_v[2] == 0:
                 vertical_v[0], vertical_v[1] = 320, -9999999
             vps[2, :] = vertical_v[:2]
+        else:
+    # Load 2D VPs from JSON (recommended) or project from NPZ
+            vps = load_vps_2d(vpt_fname, img_width=w, focal_length_px=focal_length)
+
+    # Always compute pitch-derived vertical+horizon to stabilize heights
+            vertical_v, vline = vp_calculation_with_pitch(w, h, pitch, focal_length)
+            if vertical_v[2] == 0:
+                vertical_v[0], vertical_v[1] = 320, -9999999
+
+    # HYBRID by default: keep detected horizontals (v1,v2), replace vertical (v3)
+            if not use_detected_vpt_only:
+                vps[2, :] = vertical_v[:2]
 
         elif vpt_fname.endswith(".npz"):
             # Load detected VPs (pixels): [v1_right, v2_left, v3_vertical]
