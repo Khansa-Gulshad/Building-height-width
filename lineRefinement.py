@@ -5,7 +5,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import skimage
-
+from filesIO import _strip_to_float
 from lineDrawingConfig import *  # assumes PLTOPTS, config sections exist
 
 # ---------------------------
@@ -26,7 +26,7 @@ def pointOnLine(a, b, p):
     Project point p onto the infinite line through segment (a-b).
     All points are (y,x).
     """
-    l2 = float(np.sum((a - b) ** 2))
+    l2 = _strip_to_float(np.sum((a - b) ** 2))
     if l2 == 0:
         return a.copy()
     t = float(np.sum((p - a) * (b - a))) / l2
@@ -248,7 +248,7 @@ def refine_horizontal_with_best_vp(line, vpt1_xy, vpt2_xy):
         v  = np.array([vp_xy[1] - m[0], vp_xy[0] - m[1]], float)  # (y,x) diff
         v /= (np.linalg.norm(v) + 1e-8)
         cosang = np.clip(abs(d[0] * v[0] + d[1] * v[1]), 0.0, 1.0)
-        return float(np.degrees(np.arccos(cosang)))
+        return _strip_to_float(np.degrees(np.arccos(cosang)))
     ang1 = _ang_to_vp(vpt1_xy)
     ang2 = _ang_to_vp(vpt2_xy)
     vpt_best_yx = np.array([vpt1_xy[1], vpt1_xy[0]]) if ang1 <= ang2 else np.array([vpt2_xy[1], vpt2_xy[0]])
