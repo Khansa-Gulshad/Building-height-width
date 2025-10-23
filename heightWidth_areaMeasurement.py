@@ -1,65 +1,80 @@
-# -*- encoding:utf-8 -*-
+#-*- encoding:utf-8 -*-
 
-import os
-import copy
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
+from lineClassification import *
+from lineDrawingConfig import *
+from lineRefinement import *
+from filesIO import *
 import skimage.io
-
-from lineClassification import *   # lineCoeff, intersection, filters, clustering, etc.
-from lineDrawingConfig import *    # colors_tables, PLTOPTS, c(), etc.
-from lineRefinement import *       # verticalLineExtending, horizontalLineExtending, etc.
-from filesIO import *              # load_vps_2d, load_line_array, load_seg_array, load_zgts
+import copy
 
 
-# ---------------------------
-# (optional) GT height utility
-# ---------------------------
 def gt_measurement(zgt_img, a, b, verbose=False):
     """
-    If there is a ground-truth image with per-pixel z, measure GT height of a line [a,b].
-    a/b are [y,x].
+    If there is a ground truth image with each pixel value represents the vertical z value, the ground truth height of a
+    vertical line can be measured.
+    :param zgt_img: the ground truth image with z values
+    :param a: the up point of a vertical line segment
+    :param b: the bottom point of a vertical line segment
+    :param verbose: when true, show the results
+    :return:
     """
-    if a[1] > b[1]:
-        a, b = copy.deepcopy(b), copy.deepcopy(a)
 
+    if a[1] > b[1]:
+        temp = copy.deepcopy(a)
+        a = b
+        b = temp
+
+    # check the a point & b point
     a = np.cast["int"](a + [0.5, 0.5])
     b = np.cast["int"](b + [0.5, 0.5])
 
     rows, cols = zgt_img.shape
-    row_clamp = lambda x: min(rows - 1, max(0, x))
-    col_clamp = lambda x: min(cols - 1, max(0, x))
-    fix_pt = lambda pt: np.asarray([col_clamp(pt[0]), row_clamp(pt[1])])
 
-    a = fix_pt(a)
-    b = fix_pt(b)
+    row_check = lambda x : min(rows - 1, max(0, x))
+    cols_check = lambda x: min(cols - 1, max(0, x))
+    pt_check = lambda pt:np.asarray([cols_check(pt[0]), row_check(pt[1])])
 
-    if zgt_img[a[1], a[0]] == 0 or zgt_img[b[1], b[0]] == 0:
+    a = pt_check(a)
+    b = pt_check(b)
+
+    gt_org = 0
+    gt_expd= 0
+
+    if zgt_img[a[1],a[0]] == 0 or zgt_img[b[1],b[0]] == 0:
         gt_org = 0
     else:
-        gt_org = abs(zgt_img[a[1], a[0]] - zgt_img[b[1], b[0]])
+        gt_org = abs(zgt_img[a[1],a[0]] - zgt_img[b[1],b[0]])
 
-    direction = (a - b) / (np.linalg.norm(a - b) + 1e-8)
+    direction = (a-b)/np.linalg.norm(a - b)
 
     b_expd = copy.deepcopy(b)
-    cnt = 1
+    count = 1
     while zgt_img[b_expd[1], b_expd[0]] == 0 and a[1] < b_expd[1]:
-        b_expd = np.cast["int"](b + cnt * direction)
-        cnt += 1
-
+        b_expd = np.cast["int"](b + count*direction)
+        count = count + 1
     a_expd = copy.deepcopy(a)
-    cnt = 1
-    if zgt_img[a_expd[1], a_expd[0]] == 0:
-        while 0 < a_expd[0] <= cols - 1 and a_expd[1] <= rows - 1 and zgt_img[a_expd[1], a_expd[0]] == 0:
-            a_expd = np.cast["int"](a - cnt * direction)
-            cnt += 1
-    else:
-        while 0 < a_expd[0] <= cols - 1 and a_expd[1] >= 0 and zgt_img[a_expd[1], a_expd[0]] != 0:
-            a_expd = np.cast["int"](a + cnt * direction)
-            cnt += 1
-        a_expd = np.cast["int"](a + (cnt - 2) * direction)
+    count = 1
 
-    gt_expd = abs(zgt_img[a_expd[1], a_expd[0]] - zgt_img[b_expd[1], b_expd[0]])
+    if zgt_img[a_expd[1],a_expd[0]] == 0:
+        while a_expd[0]>0 and a_expd[0] <= cols -1 and a_expd[1] <=rows - 1 and zgt_img[a_expd[1],a_expd[0]] == 0:
+            a_expd = np.cast["int"](a - count*direction)
+            count = count + 1
+    else:
+        while a_expd[0]>0 and a_expd[0] <= cols -1 and a_expd[1] >=0 and zgt_img[a_expd[1],a_expd[0]]!= 0:
+            a_expd = np.cast["int"](a + count*direction)
+            count = count + 1
+        a_expd = np.cast["int"](a + (count-2)*direction)
+        pass
+    gt_expd = abs(zgt_img[a_expd[1],a_expd[0]] - zgt_img[b_expd[1],b_expd[0]])
+
+    if verbose:
+        print("here---------------:")
+        print(a_expd)
+        print(b_expd)
+        print(zgt_img[a_expd[1],a_expd[0]])
+        print(gt_org,gt_expd)
 
     if verbose:
         plt.close()
@@ -68,57 +83,76 @@ def gt_measurement(zgt_img, a, b, verbose=False):
         plt.plot([a[0], b[0]], [a[1], b[1]], c=c(0), linewidth=2)
         plt.scatter(a[0], a[1], **PLTOPTS)
         plt.scatter(b[0], b[1], **PLTOPTS)
-        plt.close()
+        # plt.show()
 
     return gt_org, gt_expd
 
 
-# ---------------------------
-# Single-view measurement helpers
-# ---------------------------
-def sv_measurement_along(v_dir, v_a, v_b, x1, x2, zc=2.5):
+def sv_measurement(v1, v2, v3, x1, x2, zc = 2.5):
     """
-    Measure metric length of segment (x1,x2) aligned with direction v_dir,
-    using the vanishing line from (v_a, v_b). All vectors are 3D homogeneous
-    in normalized camera frame.
+    Use single-view metrology and three vanishing points to calculate height.
+    :param v1: vanishing point on the horizontal vanishing line
+    :param v2: vanishing point on the horizontal vanishing line
+    :param v3: vertical vanishing point
+    :param x1: bottom point of the vertical line segment
+    :param x2: top point of the vertical line segment
+    :param zc: camera height, unit is meter
+    :return: height zx
     """
-    vline = np.cross(v_a, v_b)
-    p4 = vline / (np.linalg.norm(vline) + 1e-8)
 
-    zc_scaled = zc * np.linalg.det([v_a, v_b, v_dir])
-    alpha = -np.linalg.det([v_a, v_b, p4]) / (zc_scaled + 1e-12)
-    p3 = alpha * v_dir
-
-    num = np.linalg.norm(np.cross(x1, x2))
-    den = (np.dot(p4, x1) * (np.linalg.norm(np.cross(p3, x2)) + 1e-12))
-    L = -num / (den + 1e-12)
-    return abs(L)
-
-
-def sv_measurement(v1, v2, v3, x1, x2, zc=2.5):
-    """ Height with three VPs (normalized camera frame). """
     vline = np.cross(v1, v2)
     p4 = vline / np.linalg.norm(vline)
 
     zc = zc * np.linalg.det([v1, v2, v3])
-    alpha = -np.linalg.det([v1, v2, p4]) / (zc + 1e-12)
+    alpha = -np.linalg.det([v1, v2, p4]) / zc  # the scalar
     p3 = alpha * v3
 
-    zx = -np.linalg.norm(np.cross(x1, x2)) / (np.dot(p4, x1) * (np.linalg.norm(np.cross(p3, x2)) + 1e-12))
-    return abs(zx)
+    # rho = np.dot(x1, p4)/(1 + zc * np.dot(p3, p4))
+    # zx = -np.linalg.norm(np.cross(x1, x2))/(rho * np.linalg.norm(np.cross(p3, x2)))
+
+    zx = -np.linalg.norm(np.cross(x1, x2)) / (np.dot(p4, x1) * np.linalg.norm(np.cross(p3, x2)))
+    zx = abs(zx)  # v1 and v2 may exchange (vanishing line can have two directions)
+
+    return zx
 
 
 def sv_measurement1(v, vline, x1, x2, zc=2.5):
-    """ Height using vertical VP + horizontal vanishing line (normalized camera frame). """
+    """
+    Use single-view metrology and vertical vanishing point along with horizontal vanishing line to calculate height.
+    :param v: vertical vanishing point
+    :param vline: horizontal vanishing line
+    :param x1: bottom point of the vertical line segment
+    :param x2: top point of the vertical line segment
+    :param zc: camera height, unit is meter
+    :return: height zx
+    """
+
     p4 = vline / np.linalg.norm(vline)
-    alpha = -1.0 / (np.dot(p4, v) * zc + 1e-12)
+
+    alpha = -1 / (np.dot(p4, v) * zc)  # the scalar
     p3 = alpha * v
-    zx = -np.linalg.norm(np.cross(x1, x2)) / (np.dot(p4, x1) * (np.linalg.norm(np.cross(p3, x2)) + 1e-12))
-    return abs(zx)
+
+    # rho = np.dot(x1, p4) / (1 + zc * np.dot(p3, p4))
+    # zx = -np.linalg.norm(np.cross(x1, x2)) / (rho * np.linalg.norm(np.cross(p3, x2)))
+
+    zx = -np.linalg.norm(np.cross(x1, x2)) / (np.dot(p4, x1) * np.linalg.norm(np.cross(p3, x2)))
+    zx = abs(zx)  # vanishing line can have two directions
+
+    return zx
 
 
 def singleViewMeasWithCrossRatio(hori_v1, hori_v2, vert_v1, pt_top, pt_bottom, zc=2.5):
-    """ Cross-ratio height with two horizontal VPs + vertical VP (image coords). """
+    """
+    Use single-view metrology and three vanishing points to calculate height. The function has the same effect as
+    "sv_measurement()", with a different calculation method. Pay attention to x, y order of the input.
+    :param hori_v1: image coordinates of a vanishing point on the horizontal vanishing line
+    :param hori_v2: image coordinates of a vanishing point on the horizontal vanishing line
+    :param vert_v1: image coordinates of the vertical vanishing point
+    :param pt_top: bottom point of the vertical line segment
+    :param pt_bottom: top point of the vertical line segment
+    :param zc: camera height, unit is meter
+    :return: height
+    """
     line_vl = lineCoeff(hori_v1, hori_v2)
     line_building_vert = lineCoeff(pt_top, pt_bottom)
     C = intersection(line_vl, line_building_vert)
@@ -128,11 +162,23 @@ def singleViewMeasWithCrossRatio(hori_v1, hori_v2, vert_v1, pt_top, pt_bottom, z
     dist_BD = np.linalg.norm(np.asarray([pt_top - pt_bottom]))
     dist_CD = np.linalg.norm(np.asarray([C - pt_bottom]))
 
-    return dist_BD * dist_AC / (dist_CD * dist_AB + 1e-12) * zc
+    height = dist_BD*dist_AC/(dist_CD*dist_AB)*zc
+    return height
 
 
 def singleViewMeasWithCrossRatio_vl(hori_vline, vert_v1, pt_top, pt_bottom, zc=2.5):
-    """ Cross-ratio height with vertical VP + horizontal vanishing line (image coords). """
+    """
+    Use single-view metrology and vertical vanishing point along with horizontal vanishing line to calculate height.
+    The function has the same effect as "sv_measurement1()", with a different calculation method.
+    Pay attention to x, y order of the input.
+    :param hori_vline: image coordinates of the horizontal vanishing line
+    :param vert_v1: image coordinates of the vertical vanishing point
+    :param pt_top: bottom point of the vertical line segment
+    :param pt_bottom: top point of the vertical line segment
+    :param zc: camera height, unit is meter
+    :return: height
+    """
+
     line_vl = hori_vline
     line_building_vert = lineCoeff(pt_top, pt_bottom)
     C = intersection(line_vl, line_building_vert)
@@ -142,18 +188,25 @@ def singleViewMeasWithCrossRatio_vl(hori_vline, vert_v1, pt_top, pt_bottom, zc=2
     dist_BD = np.linalg.norm(np.asarray([pt_top - pt_bottom]))
     dist_CD = np.linalg.norm(np.asarray([C - pt_bottom]))
 
-    return dist_BD * dist_AC / (dist_CD * dist_AB + 1e-12) * zc
+    height = dist_BD*dist_AC/(dist_CD*dist_AB)*zc
+    return height
 
 
 def vp_calculation_with_pitch(w, h, pitch, focal_length):
     """
-    For street-view style inputs (known pitch), compute vertical VP + horizon line in image coords.
-    Returns:
-      v:     [x,y,1] vertical VP (homog, image coords)
-      vline: [a,b,c] horizon line ax+by+c=0 (image coords)
+    Calculate the vertical vanishing point and the horizontal vanishing line through pitch angle. Note: this function is
+    specially set for street view images with known rotation angles (pitch, yaw, and roll), e.g. Google street view.
+    Normally, the roll angle is zero. The pitch is used for the calculation.
+    :param w: image width
+    :param h: image height
+    :param pitch: pitch angle
+    :param focal_length: focal length
+    :return: v, the vertical vanishing point, and vline, the horizontal vanishing line
     """
-    v = np.array([w / 2, 0.0, 1.0])
-    vline = np.array([0.0, 1.0, 0.0])
+
+    # initialize
+    v = np.array([w / 2, 0.0, 1.0])  # pitch will influence the second element of v, v[1]
+    vline = np.array([0.0, 1.0, 0.0])  # pitch will influence the third element of vline, vline[2]
 
     if pitch == 0:
         v[:] = [0, -1, 0]
@@ -161,23 +214,27 @@ def vp_calculation_with_pitch(w, h, pitch, focal_length):
     else:
         v[1] = h / 2 - (focal_length / np.tan(np.deg2rad(pitch)))
         vline[2] = (h / 2 + focal_length * np.tan(np.deg2rad(pitch)))
+
+    # print(v)
+    # print(vline)
+
     return v, vline
 
 
-# ---------------------------
-# Main routine
-# ---------------------------
-def heightCalc(fname_dict, intrins, config, img_size=None, pitch=None,
-               use_pitch_only=0, use_detected_vpt_only=0, verbose=False):
+def heightCalc(fname_dict, intrins, config, img_size=None, pitch=None, use_pitch_only=0, use_detected_vpt_only=0, verbose=False):
     """
-    Estimate height (always), width (if horizontal VPs are available), and compute simple areas.
+    Estimate the height of buildings.
+    :param fname_dict: the dictionary of file names
+    :param intrins: the intrinsic matrix
+    :param config: the configuration
+    :param img_size: the size of the image
+    :param pitch: the pitch angle of the image
+    :param use_pitch_only: when the value is '1', use only the pitch angle to calculate vanishing line and vertical vanishing point
+    :param use_detected_vpt_only: when the value is '1', use only the detected vanishing points
+    :param verbose: when true, show the results
+    :return:
+    """
 
-    Modes:
-      - Pitch-only:            use_pitch_only=1 (heights only; widths skipped)
-      - Hybrid (recommended):  use_pitch_only=0, use_detected_vpt_only=0
-                               -> vertical VP + horizon from pitch, horizontal VPs from detector
-      - All-detected:          use_detected_vpt_only=1 (use all 3 detected VPs)
-    """
     if img_size is None:
         img_size = [640, 640]
 
@@ -185,251 +242,204 @@ def heightCalc(fname_dict, intrins, config, img_size=None, pitch=None,
         vpt_fname = fname_dict["vpt"]
         img_fname = fname_dict["img"]
         line_fname = fname_dict["line"]
-        seg_fname = fname_dict["seg"]
-        zgt_fname = fname_dict.get("zgt", "")
+        seg_fname =  fname_dict["seg"]
+        zgt_fname = fname_dict["zgt"]
 
-        # ===== 1) Vanishing points (image coords) =====
-        w, h = img_size
+        # ######### get the vanishing points
+        w = img_size[0]
+        h = img_size[1]
         focal_length = intrins[0, 0]
-
-        loaded_detected_vps = False  # tracks if we have detected horizontals (v1,v2)
         if use_pitch_only:
-            # Heights only; widths will be skipped
-            vps = np.zeros((3, 2), float)
+            # initialize the vanishing points
+            # note: vps is set to keep the same format as the detected vps
+            # and only vps[2] (the vertical vanishing point) is used together with the vanishing line
+            vps = np.zeros([3, 2])
+
+            # calculate the vertical vanishing point and the vanishing line
             vertical_v, vline = vp_calculation_with_pitch(w, h, pitch, focal_length)
-            if vertical_v[2] == 0:
-                vertical_v[0], vertical_v[1] = 320, -9999999
+
+            # transformation of vps to 2D image coordinates
+            if vertical_v[2] == 0:  # a special case
+                vertical_v[0] = 320
+                vertical_v[1] = -9999999
             vps[2, :] = vertical_v[:2]
-        else:
-            # Load 2D VPs (JSON preferred; NPZ allowed if your filesIO supports 3D->2D projection)
-            if vpt_fname.lower().endswith(".json"):
-                vps = load_vps_2d(vpt_fname)  # returns (3,2) ordered
-            elif vpt_fname.lower().endswith(".npz"):
-                vps = load_vps_2d(vpt_fname, img_width=w, focal_length_px=focal_length)
-            else:
-                raise IOError("vpt file not found or unsupported")
 
-            loaded_detected_vps = True  # we have horizontals
+        elif '.npz' in vpt_fname:
+            vps = load_vps_2d(vpt_fname)
 
-            # Always compute pitch-derived vertical+horizon to stabilize heights
-            vertical_v, vline = vp_calculation_with_pitch(w, h, pitch, focal_length)
-            if vertical_v[2] == 0:
-                vertical_v[0], vertical_v[1] = 320, -9999999
-
-            # HYBRID by default: keep detected horizontals (v1,v2), replace vertical (v3)
+            # if not 'use_detected_vpt_only', use the calculated vertical vanishing point to replace the detected one
             if not use_detected_vpt_only:
+                vertical_v, vline = vp_calculation_with_pitch(w, h, pitch, focal_length)
+
+                # transformation of vps to 2D image coordinates
+                if vertical_v[2] == 0:  # a special case
+                    vertical_v[0] = 320
+                    vertical_v[1] = -9999999
                 vps[2, :] = vertical_v[:2]
 
-        # ===== 2) Load LCNN lines + segmentation =====
-        line_segs, scores = load_line_array(line_fname)  # (N,2,2) in [y,x]
-        seg_img = load_seg_array(seg_fname)              # HxW labels
+        # ######### get the detected line segments and the semantic segmentation results
+        line_segs, scores = load_line_array(line_fname)
+        seg_img = load_seg_array(seg_fname)
 
-        if verbose:
-            org_image = skimage.io.imread(img_fname)
-            plt.close()
-            plt.figure()
+        # save the visualization of the line/segmentation results
+        org_image = skimage.io.imread(img_fname)
+        for i, t in enumerate([0.94]):  # lines with different score thresholds ([0.94, 0.95, 0.96, 0.97, 0.98, 0.99])
+            plt.gca().set_axis_off()
+            plt.subplots_adjust(top=1, bottom=0, right=1, left=0, hspace=0, wspace=0)
+            plt.margins(0, 0)
+            for (a, b), s in zip(line_segs, scores):
+                if s < t:
+                    continue
+                plt.plot([a[1], b[1]], [a[0], b[0]], c=c(s), linewidth=2, zorder=s)
+                plt.scatter(a[1], a[0], **PLTOPTS)
+                plt.scatter(b[1], b[0], **PLTOPTS)
+            plt.gca().xaxis.set_major_locator(plt.NullLocator())
+            plt.gca().yaxis.set_major_locator(plt.NullLocator())
             plt.imshow(org_image)
             plt.imshow(seg_img, alpha=0.5)
-            for i_v in range(3):
-                x, y = vps[i_v]
-                plt.scatter(x, y, s=30)
-            plt.title(os.path.basename(img_fname))
+
+            # show the vanishing points and vanishing line
+            if use_pitch_only:
+                x, y = vertical_v[:2]
+                plt.scatter(x, y)
+                plt.plot([0, w], [vline[2], vline[2]], c='b', linewidth=5)
+            else:
+                for i in range(len(vps)):
+                    x, y = vps[i]
+                    plt.scatter(x, y)
+
+            integrated_save_name = img_fname.replace(".jpg", f"-{t:.02f}_inls.svg")
+            integrated_save_name = integrated_save_name.replace("imgs", "inls")
+            integrated_save_dir = os.path.dirname(integrated_save_name)
+            if not os.path.exists(integrated_save_dir):
+                os.makedirs(integrated_save_dir)
+            # plt.show()
             plt.close()
 
-        # ===== 3) Classify & refine lines =====
-        verticals, hori0_lines, hori1_lines, bottom_lines, roof_lines = filter_lines_outof_building_ade20k(
-            img_fname, line_segs, scores, seg_img, vps, config,
-            use_vertical_vpt_only=use_pitch_only, verbose=verbose
-        )
-
-        # Extend verticals (roof<->ground)
-        verticals = verticalLineExtending(
-            img_fname, verticals, seg_img, [vps[2, 1], vps[2, 0]], config
-        )
-
-        # Extend bottom horizontals across façade (only if we have detected horizontals)
-        ext_bottoms = []
-        if loaded_detected_vps and not use_pitch_only:
-            ext_bottoms = horizontalLineExtending(
-                img_name=img_fname,
-                horizontal_lines=bottom_lines,
-                segimg=seg_img,
-                vpt1_xy=(float(vps[0, 0]), float(vps[0, 1])),  # right-H VP
-                vpt2_xy=(float(vps[1, 0]), float(vps[1, 1])),  # left-H VP
-                config=config,
-                refine_with_vp=True,
-                verbose=verbose
-            )
-
-        # ===== 4) Heights (always) =====
-        invK = np.linalg.inv(intrins)
-
-        # Build normalized camera-frame VPs (only if any detected VPs were loaded)
-        vps0_d3 = vps1_d3 = vps2_d3 = None
-        have_horiz_vps = False
-        if loaded_detected_vps:
-            vps0_d3 = invK @ np.array([vps[0, 0], vps[0, 1], 1.0])
-            vps1_d3 = invK @ np.array([vps[1, 0], vps[1, 1], 1.0])
-            vps2_d3 = invK @ np.array([vps[2, 0], vps[2, 1], 1.0])
-            # We consider horizontals present if v1 & v2 are finite
-            have_horiz_vps = np.all(np.isfinite(vps0_d3)) and np.all(np.isfinite(vps1_d3))
-
-        ht_set = []
-        seen = set()
-
-        for line in verticals:
-            a, b = line[0], line[1]  # [y,x]
-            key = (int(a[0]), int(a[1]), int(b[0]), int(b[1]))
-            if key in seen:
-                continue
-            seen.add(key)
-
-            a_d3 = invK @ np.array([a[1], a[0], 1.0])
-            b_d3 = invK @ np.array([b[1], b[0], 1.0])
-
-            # Heights:
-            # - Pitch-only or Hybrid -> cross-ratio with (vertical_v, vline)
-            # - All-detected        -> full 3-VP formula
-            if use_pitch_only or (not use_detected_vpt_only):
-                ht = singleViewMeasWithCrossRatio_vl(
-                    vline, vertical_v[:2],
-                    np.asarray([a[1], a[0]]),  # top (x,y)
-                    np.asarray([b[1], b[0]]),  # bottom (x,y)
-                    zc=float(config["STREET_VIEW"]["CameraHeight"])
-                )
-            else:
-                ht = sv_measurement(
-                    vps0_d3, vps1_d3, vps2_d3,
-                    b_d3, a_d3,
-                    zc=float(config["STREET_VIEW"]["CameraHeight"])
-                )
-
-            if int(config["GROUND_TRUTH"]["Exist"]):
-                zgt_img = load_zgts(zgt_fname)
-                ht_gt_org, ht_gt_expd = gt_measurement(
-                    zgt_img, np.asarray([a[1], a[0]]), np.asarray([b[1], b[0]])
-                )
-            else:
-                ht_gt_org = ht_gt_expd = 0.0
-
-            ht_set.append([ht, a, b, ht_gt_org, ht_gt_expd])
-
-        # ===== 5) Widths (only when horizontal VPs exist) =====
-        wd_set = []
-        if have_horiz_vps and not use_pitch_only:
-            cam_h = float(config["STREET_VIEW"]["CameraHeight"])
-
-            def add_widths_from(lines, v_dir, v_a, v_b, grp_id):
-                for ln in lines:
-                    ax, bx = ln[0], ln[1]
-                    a_cam = invK @ np.array([ax[1], ax[0], 1.0])
-                    b_cam = invK @ np.array([bx[1], bx[0], 1.0])
-                    wval = sv_measurement_along(v_dir, v_a, v_b, a_cam, b_cam, zc=cam_h)
-                    wd_set.append([wval, ax, bx, grp_id])
-
-            # Prefer extended bottom baselines; otherwise use raw horizontal buckets
-            if len(ext_bottoms) > 0:
-                # ext_bottoms contain generic horizontals; use v1 as v_dir by default
-                add_widths_from(ext_bottoms, vps0_d3, vps1_d3, vps2_d3, grp_id=0)
-            else:
-                add_widths_from(hori0_lines, vps0_d3, vps1_d3, vps2_d3, grp_id=0)  # v1-right aligned
-                add_widths_from(hori1_lines, vps1_d3, vps0_d3, vps2_d3, grp_id=1)  # v2-left  aligned
-        else:
-            if verbose:
-                print("[width] skipped: need detected horizontal VPs (v1 & v2).")
-
-        # ===== 6) Group (cluster) & visualize =====
-        if verbose:
-            print("path:%s" % img_fname)
-
-        grouped_heights = clausterLinesWithCenters(ht_set, config, using_height=True)
-        if grouped_heights is None:
-            print("no suitable vertical lines found in", img_fname)
-            return None
-
-        grouped_widths = None
-        if len(wd_set) > 0:
-            grouped_widths = clausterLinesWithCenters(wd_set, config, using_height=True)
-
-        # plot grouped verticals
+        # ######### processing the line segments
         if verbose:
             plt.close()
-            plt.figure(figsize=(10, 8))
             org_img = skimage.io.imread(img_fname)
             plt.imshow(org_img)
             plt.imshow(seg_img, alpha=0.5)
 
-            heights = []
-            ax_legends = []
-            for i_g, grp in enumerate(grouped_heights):
-                heights.append([grp[-2], grp[-1]])  # [median, mean]
-                color = colors_tables[i_g % len(colors_tables)]
-                last_line = None
-                for it in grp[:-2]:
-                    _, a, b, *_ = it
-                    last_line, = plt.plot([a[1], b[1]], [a[0], b[0]], c=color, linewidth=2)
+        # classify the line segments and extend vertical lines
+        verticals = filter_lines_outof_building_ade20k(img_fname, line_segs, scores, seg_img, vps, config, use_pitch_only)
+        verticals = verticalLineExtending(img_fname, verticals, seg_img, [vps[2, 1], vps[2, 0]], config)
+        # verticals, bottoms, roofs = filter_lines_outof_building_ade20k(img_fname, line_segs, scores, seg_img, vps, config, use_pitch_only)
+        # verticals = verticalLineExtendingWithBRLines(img_fname, verticals, roofs, bottoms, seg_img, config)
+
+        # ######### calculate heights of processed vertical line segments
+        invK = np.linalg.inv(intrins)
+        ht_set = []
+        check_list = []
+
+        for line in verticals:
+            # only consider a, b as integers
+            # a = np.cast["int"](line[0] + 0.5)
+            # b = np.cast["int"](line[1] + 0.5)
+            a = line[0]
+            b = line[1]
+
+            # remove duplicate a,b because of integer
+            if len(check_list) !=0 :
+                flag = 0
+                for a0,a1,b0,b1 in check_list:
+                    if a0 == a[0] and a1 == a[1] and b0 == b[0] and b1 == b[1]:
+                        flag=1
+                        break
+                if flag:
+                    continue
+            check_list.append([a[0], a[1], b[0], b[1]])
+
+            # swap x and y, as coordinates here are expressed in [y, x] order
+            a_d3 = np.asarray([a[1], a[0], 1])
+            a_d3 = np.matmul(invK, np.transpose(a_d3))
+
+            b_d3 = np.asarray([b[1], b[0], 1])
+            b_d3 = np.matmul(invK, np.transpose(b_d3))
+
+            if use_detected_vpt_only:
+                vps0 = np.asarray([vps[0, 0], vps[0, 1], 1])
+                vps1 = np.asarray([vps[1, 0], vps[1, 1], 1])
+
+                use_horizontal_property_to_refine = 0
+                if use_horizontal_property_to_refine:
+                    vps0 = np.asarray([vps[0, 0], (vps[0, 1] + vps[1, 1]) / 2.0, 1])
+                    vps1 = np.asarray([vps[1, 0], (vps[0, 1] + vps[1, 1]) / 2.0, 1])
+
+                vps0 = np.matmul(invK, np.transpose(vps0))
+                vps1 = np.matmul(invK, np.transpose(vps1))
+
+                vps2 = np.asarray([vps[2, 0], vps[2, 1], 1])
+                vps2 = np.matmul(invK, np.transpose(vps2))
+                ht = sv_measurement(vps0, vps1, vps2, b_d3, a_d3, zc=float(config["STREET_VIEW"]["CameraHeight"]))
+            else:
+                ht = singleViewMeasWithCrossRatio_vl(vline, vertical_v[:2], np.asarray([a[1], a[0]]),
+                                                     np.asarray([b[1], b[0]]),
+                                                     zc=float(config["STREET_VIEW"]["CameraHeight"]))
+
+            gt_exist = int(config["GROUND_TRUTH"]["Exist"])
+            if gt_exist:
+                zgt_img = load_zgts(zgt_fname)
+                ht_gt_org, ht_gt_expd = gt_measurement(zgt_img,np.asarray([a[1], a[0]]), np.asarray([b[1], b[0]]))
+            else:
+                ht_gt_org, ht_gt_expd = ht*0, ht*0
+            ht_set.append([ht, a, b, ht_gt_org, ht_gt_expd])
+
+        if verbose:
+            plt.close()
+            # plt.figure(figsize=(18, 8))
+            # plt.subplot(121)
+            plt.figure(figsize=(10, 8))
+            org_img = skimage.io.imread(img_fname)
+            plt.imshow(org_img)
+            plt.imshow(seg_img, alpha=0.5)
+        print("path:%s" % img_fname)
+
+        # divide vertical line segments into groups using computed heights
+        grouped_lines = clausterLinesWithCenters(ht_set, config, using_height=True)
+        if grouped_lines is None:
+            print('no suitable vertical lines founded in image ' + img_fname)
+            return
+
+        list_len = len(grouped_lines)
+        heights = []
+        ax_legends = []
+        if len(colors_tables) < list_len:
+            print("warning: lines with the same color might be different groups.")
+        for i in range(list_len):
+            lines = grouped_lines[i]
+            list_len_lines = len(lines)
+            # rng = np.random.default_rng()
+            # colors = np.cast['float'](rng.integers(255, size=3))
+            # colors = colors / (np.linalg.norm(colors) + 0.0001)
+            heights.append([lines[-2], lines[-1]])
+            for j in range(list_len_lines - 2):
+                # plot points
+                a = lines[j][1]
+                b = lines[j][2]
+                if verbose:
+                    ax_line, = plt.plot([a[1], b[1]], [a[0], b[0]], c=colors_tables[i % len(colors_tables)], linewidth=2)
                     plt.scatter(a[1], a[0], **PLTOPTS)
                     plt.scatter(b[1], b[0], **PLTOPTS)
-                if last_line is not None:
-                    ax_legends.append(last_line)
+            ax_legends.append(ax_line)
 
-            if ax_legends:
-                plt.legend(ax_legends, [f'avg={y:.3f}m, med={x:.3f}m' for x, y in heights])
-            out_dir = os.path.dirname(img_fname.replace('imgs', 'ht_results'))
-            os.makedirs(out_dir, exist_ok=True)
-            out_svg = img_fname.replace('imgs', 'ht_results').replace('.jpg', '_htre.svg')
-            out_png = out_svg.replace('.svg', '.png')
-            plt.savefig(out_svg, bbox_inches="tight")
-            plt.savefig(out_png, bbox_inches="tight")
+        if verbose:
+            plt.legend(ax_legends, ['average_height = %.4fm, median_height = %.4fm' % (y, x) for x, y in heights])
+            # plt.legend(ax_legends, ['median_height = %.4fm, average_height = %.4fm' % (x, y) for x, y in heights])
+            result_save_name = img_fname.replace('imgs', 'ht_results')
+            result_save_name = result_save_name.replace('.jpg', '_htre.svg')
+            result_save_name2 = result_save_name.replace('.svg', '.png')
+            re_save_dir = os.path.dirname(result_save_name)
+            if not os.path.exists(re_save_dir):
+                os.makedirs(re_save_dir)
+            plt.savefig(result_save_name, bbox_inches="tight")
+            plt.savefig(result_save_name2, bbox_inches="tight")
+            # plt.show()
             plt.close()
 
-        # ===== 7) Pair height groups ↔ width groups (nearest-centroid), compute area =====
-        def _centroid_of_group(grp):
-            pts = []
-            for it in grp[:-2]:
-                _, a, b, *_ = it
-                pts.append(((a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0))  # (y,x)
-            if not pts:
-                return np.array([np.nan, np.nan])
-            return np.mean(np.array(pts), axis=0)
+            pass
 
-        areas = []
-        if grouped_widths is not None:
-            h_centers = [_centroid_of_group(g) for g in grouped_heights]
-            w_centers = [_centroid_of_group(g) for g in grouped_widths]
-
-            for hi, hg in enumerate(grouped_heights):
-                if not np.isfinite(h_centers[hi]).all():
-                    continue
-                h_med, h_mean = hg[-2], hg[-1]
-                dists = [np.linalg.norm(h_centers[hi] - wc) if np.isfinite(wc).all() else 1e9
-                         for wc in w_centers]
-                if not dists or min(dists) == 1e9:
-                    continue
-                wi = int(np.argmin(dists))
-                wg = grouped_widths[wi]
-                w_med, w_mean = wg[-2], wg[-1]
-                areas.append({
-                    "height_median": h_med, "height_mean": h_mean,
-                    "width_median":  w_med,  "width_mean":  w_mean,
-                    "area_median":   h_med * w_med,
-                    "area_mean":     h_mean * w_mean,
-                    "pair_dist_px":  float(dists[wi]),
-                })
-
-            print("[areas] per matched building (median×median):")
-            for k, a in enumerate(areas):
-                print(f"  #{k}: H_med={a['height_median']:.3f} m, "
-                      f"W_med={a['width_median']:.3f} m, "
-                      f"Area_med={a['area_median']:.3f} m^2  "
-                      f"(pair_dist_px={a['pair_dist_px']:.1f})")
-        else:
-            print("[areas] skipped (no grouped widths).")
-
-        return grouped_heights, grouped_widths, areas
-
-    except Exception as e:
-        print("heightCalc error:", str(e))
-        return None
-
-
+    except IOError:
+        print("file does not exist\n")
