@@ -409,21 +409,22 @@ def heightCalc(fname_dict, intrins, config, img_size=None, pitch=None, use_pitch
         if len(colors_tables) < list_len:
             print("warning: lines with the same color might be different groups.")
         for i in range(list_len):
+            ax_line = None
             lines = grouped_lines[i]
             list_len_lines = len(lines)
-            # rng = np.random.default_rng()
-            # colors = np.cast['float'](rng.integers(255, size=3))
-            # colors = colors / (np.linalg.norm(colors) + 0.0001)
             heights.append([lines[-2], lines[-1]])
             for j in range(list_len_lines - 2):
-                # plot points
                 a = lines[j][1]
                 b = lines[j][2]
                 if verbose:
-                    ax_line, = plt.plot([a[1], b[1]], [a[0], b[0]], c=colors_tables[i % len(colors_tables)], linewidth=2)
+                    ax_line, = plt.plot(
+                    [a[1], b[1]], [a[0], b[0]],
+                    c=colors_tables[i % len(colors_tables)], linewidth=2
+                    )
                     plt.scatter(a[1], a[0], **PLTOPTS)
                     plt.scatter(b[1], b[0], **PLTOPTS)
-            ax_legends.append(ax_line)
+            if verbose and ax_line is not None:
+                ax_legends.append(ax_line)
 
         if verbose:
             plt.legend(ax_legends, ['average_height = %.4fm, median_height = %.4fm' % (y, x) for x, y in heights])
