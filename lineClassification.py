@@ -70,9 +70,9 @@ def classify_lines(lines, scores, vps2d_dict, seg_img, config):
         dict with lists of indices:
           {'vertical_idx': [...], 'hori0_idx': [...], 'hori1_idx': [...], 'horizontal_idx': [...]}
     """
-    min_score     = float(config["LINE_CLASSIFY"]["LineScore"])
-    tol_vert_deg  = float(config["LINE_CLASSIFY"]["AngleThres"])
-    tol_horiz_deg = float(config["LINE_CLASSIFY"].get("HorizAngleThres", tol_vert_deg))
+    min_score     = _get_float(config["LINE_CLASSIFY"]["LineScore"])
+    tol_vert_deg  = _get_float(config["LINE_CLASSIFY"]["AngleThres"])
+    tol_horiz_deg = _get_float(config["LINE_CLASSIFY"].get("HorizAngleThres", tol_vert_deg))
 
     building_labels = _parse_label_list(config, "BuildingLabel")
 
