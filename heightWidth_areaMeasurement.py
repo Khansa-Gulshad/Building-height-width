@@ -1,5 +1,7 @@
 # -*- encoding:utf-8 -*-
 
+# -*- encoding:utf-8 -*-
+
 import os
 import copy
 import numpy as np
@@ -8,13 +10,16 @@ import skimage.io
 
 from lineClassification import *   # lineCoeff, intersection, filters, clustering, etc.
 from lineDrawingConfig import *    # colors_tables, PLTOPTS, c(), etc.
-from lineRefinement import *       # verticalLineExtending, etc.
+from lineRefinement import *       # verticalLineExtending, horizontalLineExtending, etc.
 from filesIO import *              # load_vps_2d, load_line_array, load_seg_array, load_zgts
 
 
+# ---------------------------
+# (optional) GT height utility
+# ---------------------------
 def gt_measurement(zgt_img, a, b, verbose=False):
     """
-    If there is a ground truth image with each pixel value representing vertical z, measure GT height of a line [a,b].
+    If there is a ground-truth image with per-pixel z, measure GT height of a line [a,b].
     a/b are [y,x].
     """
     if a[1] > b[1]:
@@ -70,10 +75,14 @@ def gt_measurement(zgt_img, a, b, verbose=False):
     return gt_org, gt_expd
 
 
+# ---------------------------
+# Single-view measurement helpers
+# ---------------------------
 def sv_measurement_along(v_dir, v_a, v_b, x1, x2, zc=2.5):
     """
     Measure metric length of segment (x1,x2) aligned with direction v_dir,
-    using the vanishing line from (v_a, v_b). All vectors are 3D homogeneous in normalized camera frame.
+    using the vanishing line from (v_a, v_b). All vectors are 3D homogeneous
+    in normalized camera frame.
     """
     vline = np.cross(v_a, v_b)
     p4 = vline / (np.linalg.norm(vline) + 1e-8)
@@ -89,7 +98,7 @@ def sv_measurement_along(v_dir, v_a, v_b, x1, x2, zc=2.5):
 
 
 def sv_measurement(v1, v2, v3, x1, x2, zc=2.5):
-    """ Original height formula with three VPs (normalized camera frame). """
+    """ Height with three VPs (normalized camera frame). """
     vline = np.cross(v1, v2)
     p4 = vline / np.linalg.norm(vline)
 
@@ -111,7 +120,7 @@ def sv_measurement1(v, vline, x1, x2, zc=2.5):
 
 
 def singleViewMeasWithCrossRatio(hori_v1, hori_v2, vert_v1, pt_top, pt_bottom, zc=2.5):
-    """ Cross-ratio height with two horizontal VPs + vertical VP (image coords, not normalized). """
+    """ Cross-ratio height with two horizontal VPs + vertical VP (image coords). """
     line_vl = lineCoeff(hori_v1, hori_v2)
     line_building_vert = lineCoeff(pt_top, pt_bottom)
     C = intersection(line_vl, line_building_vert)
@@ -139,7 +148,12 @@ def singleViewMeasWithCrossRatio_vl(hori_vline, vert_v1, pt_top, pt_bottom, zc=2
 
 
 def vp_calculation_with_pitch(w, h, pitch, focal_length):
-    """ For street-view style inputs (known pitch), compute vertical VP + horizon line in image coords. """
+    """
+    For street-view style inputs (known pitch), compute vertical VP + horizon line in image coords.
+    Returns:
+      v:     [x,y,1] vertical VP (homog, image coords)
+      vline: [a,b,c] horizon line ax+by+c=0 (image coords)
+    """
     v = np.array([w / 2, 0.0, 1.0])
     vline = np.array([0.0, 1.0, 0.0])
 
@@ -152,10 +166,19 @@ def vp_calculation_with_pitch(w, h, pitch, focal_length):
     return v, vline
 
 
+# ---------------------------
+# Main routine
+# ---------------------------
 def heightCalc(fname_dict, intrins, config, img_size=None, pitch=None,
                use_pitch_only=0, use_detected_vpt_only=0, verbose=False):
     """
-    Main: estimate height (always), width (if detected VPs available), and an area per building.
+    Estimate height (always), width (if horizontal VPs are available), and compute simple areas.
+
+    Modes:
+      - Pitch-only:            use_pitch_only=1 (heights only; widths skipped)
+      - Hybrid (recommended):  use_pitch_only=0, use_detected_vpt_only=0
+                               -> vertical VP + horizon from pitch, horizontal VPs from detector
+      - All-detected:          use_detected_vpt_only=1 (use all 3 detected VPs)
     """
     if img_size is None:
         img_size = [640, 640]
@@ -171,18 +194,25 @@ def heightCalc(fname_dict, intrins, config, img_size=None, pitch=None,
         w, h = img_size
         focal_length = intrins[0, 0]
 
+        loaded_detected_vps = False
+        vertical_v = None
+        vline = None
+
         if use_pitch_only:
-            # Only vertical VP + horizon
+            # Only vertical VP + horizon (no detected horizontals)
             vps = np.zeros([3, 2])
             vertical_v, vline = vp_calculation_with_pitch(w, h, pitch, focal_length)
             if vertical_v[2] == 0:
                 vertical_v[0], vertical_v[1] = 320, -9999999
             vps[2, :] = vertical_v[:2]
 
-        elif ".npz" in vpt_fname:
-            vps = load_vps_2d(vpt_fname)  # expects shape (3,2): [v1_right, v2_left, v3_vertical]
+        elif vpt_fname.endswith(".npz"):
+            # Load detected VPs (pixels): [v1_right, v2_left, v3_vertical]
+            vps = load_vps_2d(vpt_fname)
+            loaded_detected_vps = True
+
+            # Hybrid: replace vertical with pitch-derived one (keeps horizon stable)
             if not use_detected_vpt_only:
-                # Replace the vertical with pitch-derived one (keeps horizon line too)
                 vertical_v, vline = vp_calculation_with_pitch(w, h, pitch, focal_length)
                 if vertical_v[2] == 0:
                     vertical_v[0], vertical_v[1] = 320, -9999999
@@ -190,18 +220,16 @@ def heightCalc(fname_dict, intrins, config, img_size=None, pitch=None,
         else:
             raise IOError("vpt file not found or unsupported")
 
-        # ===== 2) Load LCNN lines + seg =====
-        line_segs, scores = load_line_array(line_fname)  # lines: (N,2,2) in [y,x]
+        # ===== 2) Load LCNN lines + segmentation =====
+        line_segs, scores = load_line_array(line_fname)  # (N,2,2) in [y,x]
         seg_img = load_seg_array(seg_fname)              # HxW labels
 
-        # (Optional) quick viz of inputs
         if verbose:
             org_image = skimage.io.imread(img_fname)
             plt.close()
             plt.figure()
             plt.imshow(org_image)
             plt.imshow(seg_img, alpha=0.5)
-            # draw VPs
             for i_v in range(3):
                 x, y = vps[i_v]
                 plt.scatter(x, y, s=30)
@@ -213,29 +241,35 @@ def heightCalc(fname_dict, intrins, config, img_size=None, pitch=None,
             img_fname, line_segs, scores, seg_img, vps, config,
             use_vertical_vpt_only=use_pitch_only, verbose=verbose
         )
-        # extend verticals (roof<->ground)
-        verticals = verticalLineExtending(img_fname, verticals, seg_img, [vps[2, 1], vps[2, 0]], config)
 
-        ext_bottoms = horizontalLineExtending(
-        img_name=img_fname,
-        horizontal_lines=bottom_lines,
-        segimg=seg_img,
-        vpt1_xy=(float(vps[0, 0]), float(vps[0, 1])),  # right-H VP
-        vpt2_xy=(float(vps[1, 0]), float(vps[1, 1])),  # left-H VP
-        config=config,
-        refine_with_vp=True,
-        verbose=verbose
+        # Extend verticals (roof<->ground)
+        verticals = verticalLineExtending(
+            img_fname, verticals, seg_img, [vps[2, 1], vps[2, 0]], config
         )
+
+        # Extend bottom horizontals across façade (only if we have detected horizontals)
+        ext_bottoms = []
+        if loaded_detected_vps:
+            ext_bottoms = horizontalLineExtending(
+                img_name=img_fname,
+                horizontal_lines=bottom_lines,
+                segimg=seg_img,
+                vpt1_xy=(float(vps[0, 0]), float(vps[0, 1])),  # right-H VP
+                vpt2_xy=(float(vps[1, 0]), float(vps[1, 1])),  # left-H VP
+                config=config,
+                refine_with_vp=True,
+                verbose=verbose
+            )
 
         # ===== 4) Heights (always) =====
         invK = np.linalg.inv(intrins)
 
-        # ---- Precompute normalized camera-frame VPs (only if using detected VPs)
+        # Build normalized camera-frame VPs (only if detected were loaded)
         vps0_d3 = vps1_d3 = vps2_d3 = None
-        if use_detected_vpt_only:
-            vps0_d3 = np.matmul(invK, np.array([vps[0, 0], vps[0, 1], 1.0]))
-            vps1_d3 = np.matmul(invK, np.array([vps[1, 0], vps[1, 1], 1.0]))
-            vps2_d3 = np.matmul(invK, np.array([vps[2, 0], vps[2, 1], 1.0]))
+        if loaded_detected_vps:
+            vps0_d3 = invK @ np.array([vps[0, 0], vps[0, 1], 1.0])
+            vps1_d3 = invK @ np.array([vps[1, 0], vps[1, 1], 1.0])
+            vps2_d3 = invK @ np.array([vps[2, 0], vps[2, 1], 1.0])
 
         ht_set = []
         seen = set()
@@ -247,50 +281,60 @@ def heightCalc(fname_dict, intrins, config, img_size=None, pitch=None,
                 continue
             seen.add(key)
 
-            a_d3 = np.matmul(invK, np.array([a[1], a[0], 1.0]))
-            b_d3 = np.matmul(invK, np.array([b[1], b[0], 1.0]))
+            a_d3 = invK @ np.array([a[1], a[0], 1.0])
+            b_d3 = invK @ np.array([b[1], b[0], 1.0])
 
-            if use_detected_vpt_only:
-                ht = sv_measurement(vps0_d3, vps1_d3, vps2_d3, b_d3, a_d3,
-                                    zc=float(config["STREET_VIEW"]["CameraHeight"]))
+            # Heights:
+            # - Pitch-only or Hybrid -> cross-ratio with (vertical_v, vline)
+            # - All-detected        -> full 3-VP formula
+            if use_pitch_only or (not use_detected_vpt_only):
+                ht = singleViewMeasWithCrossRatio_vl(
+                    vline, vertical_v[:2],
+                    np.asarray([a[1], a[0]]),  # top (x,y)
+                    np.asarray([b[1], b[0]]),  # bottom (x,y)
+                    zc=float(config["STREET_VIEW"]["CameraHeight"])
+                )
             else:
-                # cross-ratio version with pitch-derived horizon/vertical VP (image coords)
-                ht = singleViewMeasWithCrossRatio_vl(vline, vertical_v[:2],
-                                                     np.asarray([a[1], a[0]]),
-                                                     np.asarray([b[1], b[0]]),
-                                                     zc=float(config["STREET_VIEW"]["CameraHeight"]))
+                ht = sv_measurement(
+                    vps0_d3, vps1_d3, vps2_d3,
+                    b_d3, a_d3,
+                    zc=float(config["STREET_VIEW"]["CameraHeight"])
+                )
 
             if int(config["GROUND_TRUTH"]["Exist"]):
                 zgt_img = load_zgts(zgt_fname)
-                ht_gt_org, ht_gt_expd = gt_measurement(zgt_img, np.asarray([a[1], a[0]]),
-                                                       np.asarray([b[1], b[0]]))
+                ht_gt_org, ht_gt_expd = gt_measurement(
+                    zgt_img, np.asarray([a[1], a[0]]), np.asarray([b[1], b[0]])
+                )
             else:
                 ht_gt_org = ht_gt_expd = 0.0
 
             ht_set.append([ht, a, b, ht_gt_org, ht_gt_expd])
 
-        # ===== 5) Widths (only when using detected VPs) =====
+        # ===== 5) Widths (only when horizontal VPs exist) =====
         wd_set = []
-        if use_detected_vpt_only and (vps0_d3 is not None):
+        have_horiz_vps = loaded_detected_vps and (vps0_d3 is not None) and (vps1_d3 is not None)
+
+        if have_horiz_vps:
             cam_h = float(config["STREET_VIEW"]["CameraHeight"])
-            
+
             def add_widths_from(lines, v_dir, v_a, v_b, grp_id):
                 for ln in lines:
                     ax, bx = ln[0], ln[1]      # [y,x]
-                    a_cam = np.matmul(invK, np.array([ax[1], ax[0], 1.0]))
-                    b_cam = np.matmul(invK, np.array([bx[1], bx[0], 1.0]))
+                    a_cam = invK @ np.array([ax[1], ax[0], 1.0])
+                    b_cam = invK @ np.array([bx[1], bx[0], 1.0])
                     wval = sv_measurement_along(v_dir, v_a, v_b, a_cam, b_cam, zc=cam_h)
                     wd_set.append([wval, ax, bx, grp_id])
 
-    # Prefer extended bottom baselines; otherwise fall back to raw horizontals
+            # Prefer extended bottom baselines; otherwise use raw horizontal buckets
             if len(ext_bottoms) > 0:
                 add_widths_from(ext_bottoms, vps0_d3, vps1_d3, vps2_d3, grp_id=0)
             else:
-                add_widths_from(hori0_lines, vps0_d3, vps1_d3, vps2_d3, grp_id=0)  # v1-right aligned
-                add_widths_from(hori1_lines, vps1_d3, vps0_d3, vps2_d3, grp_id=1)  # v2-left aligned
+                add_widths_from(hori0_lines,  vps0_d3, vps1_d3, vps2_d3, grp_id=0)  # v1-right aligned
+                add_widths_from(hori1_lines,  vps1_d3, vps0_d3, vps2_d3, grp_id=1)  # v2-left  aligned
         else:
             if verbose:
-                print("[width] skipped: need detected VPs (use_detected_vpt_only=1).")
+                print("[width] skipped: need detected horizontal VPs (v1 & v2).")
 
         # ===== 6) Group (cluster) & visualize =====
         if verbose:
@@ -337,7 +381,7 @@ def heightCalc(fname_dict, intrins, config, img_size=None, pitch=None,
             plt.savefig(out_png, bbox_inches="tight")
             plt.close()
 
-        # ===== 7) Pair height groups ↔ width groups (simple nearest-centroid), compute area =====
+        # ===== 7) Pair height groups ↔ width groups (nearest-centroid), compute area =====
         def _centroid_of_group(grp):
             pts = []
             for it in grp[:-2]:
@@ -365,10 +409,10 @@ def heightCalc(fname_dict, intrins, config, img_size=None, pitch=None,
                 w_med, w_mean = wg[-2], wg[-1]
                 areas.append({
                     "height_median": h_med, "height_mean": h_mean,
-                    "width_median": w_med,  "width_mean":  w_mean,
-                    "area_median":  h_med * w_med,
-                    "area_mean":    h_mean * w_mean,
-                    "pair_dist_px": float(dists[wi]),
+                    "width_median":  w_med,  "width_mean":  w_mean,
+                    "area_median":   h_med * w_med,
+                    "area_mean":     h_mean * w_mean,
+                    "pair_dist_px":  float(dists[wi]),
                 })
 
             print("[areas] per matched building (median×median):")
@@ -385,6 +429,9 @@ def heightCalc(fname_dict, intrins, config, img_size=None, pitch=None,
     except Exception as e:
         print("heightCalc error:", str(e))
         return None
+
+    except IOError:
+        print("file does not exist\n")
 
     except IOError:
         print("file does not exist\n")
