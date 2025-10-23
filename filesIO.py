@@ -3,6 +3,68 @@ import numpy as np
 import skimage.io
 import matplotlib.pyplot as plt
 
+def _strip_to_float(s, default=None):
+    """Parse floats even if the value has inline comments like '10 ; note'."""
+    if s is None:
+        return default
+    s = str(s).split(';')[0].split('#')[0].strip()
+    return float(s)
+
+def order_vpt(vps_2d, w):
+    """
+    Reorder 3 vanishing points so:
+      v3 = vertical (|y - h/2| largest), v1 = right-H, v2 = left-H.
+    vps_2d: (3,2) array in pixels, w=h=image width.
+    """
+    vps_2d = np.asarray(vps_2d, float)
+    h = w
+    dy = np.abs(vps_2d[:, 1] - h / 2.0)
+    v3_id = int(np.argmax(dy))
+    others = [i for i in (0, 1, 2) if i != v3_id]
+    # right has larger x
+    if vps_2d[others[0], 0] >= vps_2d[others[1], 0]:
+        v1 = vps_2d[others[0]]
+        v2 = vps_2d[others[1]]
+    else:
+        v1 = vps_2d[others[1]]
+        v2 = vps_2d[others[0]]
+    v3 = vps_2d[v3_id]
+    return np.vstack([v1, v2, v3])
+
+def load_vps_2d(vpt_path, img_width=None, focal_length_px=None):
+    """
+    Returns (3,2) float array [v1_right, v2_left, v3_vertical] in PIXELS of your working image.
+    - If *.json: reads the already-projected 2D VPs (recommended).
+    - If *.npz : projects 3D directions using intrinsics (needs img_width & focal_length_px).
+    """
+    path = vpt_path.lower()
+    if path.endswith(".json"):
+        j = json.load(open(vpt_path, "r"))
+        o = j["vpts_2d_ordered"]
+        return np.array([o["v1_right"], o["v2_left"], o["v3_vertical"]], dtype=float)
+
+    if path.endswith(".npz"):
+        if img_width is None or focal_length_px is None:
+            raise ValueError("img_width and focal_length_px are required for .npz -> 2D projection")
+        d = np.load(vpt_path)
+        if "vpts_pd" not in d:
+            raise IOError(f"{vpt_path}: missing 'vpts_pd'")
+        v3d = np.asarray(d["vpts_pd"], float)  # (3,3) directions
+        v3d /= (np.linalg.norm(v3d, axis=1, keepdims=True) + 1e-9)
+
+        # Intrinsics with principal point at image center (w=h)
+        cx = cy = img_width / 2.0
+        K = np.array([[focal_length_px, 0, cx],
+                      [0, focal_length_px, cy],
+                      [0, 0, 1]], float)
+
+        v2d_h = (K @ v3d.T).T                   # (3,3) homogeneous
+        v2d = v2d_h[:, :2] / (v2d_h[:, 2:]+1e-9)  # (3,2) pixels
+        v2d = order_vpt(v2d, w=img_width)
+        return v2d
+
+    raise IOError(f"Unsupported vpt file: {vpt_path}")
+
 def load_vps_2d(filename):
     """
     Load vanishing points (2D pixel coords) as a (3,2) array ordered:
