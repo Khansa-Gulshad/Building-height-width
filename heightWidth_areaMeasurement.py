@@ -275,9 +275,9 @@ def heightCalc(fname_dict, intrins, config, img_size=None, pitch=None,
         # Build normalized camera-frame VPs (only if detected were loaded)
         vps0_d3 = vps1_d3 = vps2_d3 = None
         if loaded_detected_vps:
-            vps0_d3 = invK @ np.array([vps[0, 0], vps[0, 1], 1.0])
-            vps1_d3 = invK @ np.array([vps[1, 0], vps[1, 1], 1.0])
-            vps2_d3 = invK @ np.array([vps[2, 0], vps[2, 1], 1.0])
+            vps0_d3 = np.matmul(invK, np.array([vps[0, 0], vps[0, 1], 1.0]))
+            vps1_d3 = np.matmul(invK, np.array([vps[1, 0], vps[1, 1], 1.0]))
+            vps2_d3 = np.matmul(invK, np.array([vps[2, 0], vps[2, 1], 1.0]))
 
         ht_set = []
         seen = set()
