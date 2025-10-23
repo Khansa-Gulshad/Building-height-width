@@ -9,19 +9,23 @@ from sklearn.cluster import DBSCAN
 from lineDrawingConfig import *
 from lineRefinement import lineRefinementWithVPT, pointOnLine
 from filesIO import _strip_to_float
+
 # --------------------------
 # small helpers
 # --------------------------
-def _get_float(cfg, section, key, default=None):
-    raw = cfg[section].get(key, default)
+
+def get_cfg_float(config, section, key, default=None):
+    """Read a float from config allowing inline comments like '10 ; note' or '10 # note'."""
+    raw = config[section].get(key, None)
     if raw is None:
         return default
-    raw = str(raw).split(';')[0].split('#')[0].strip()
-    return float(raw)
+    s = str(raw).split(';')[0].split('#')[0].strip()
+    return float(s) if s != "" else default
 
 def _parse_label_list(config, key):
     """Parse comma-separated label list (e.g., '2,3') into a set of ints."""
-    return set(int(x.strip()) for x in str(config["SEGMENTATION"][key]).split(",") if x.strip())
+    vals = str(config["SEGMENTATION"][key])
+    return {int(x.strip()) for x in vals.split(",") if x.strip()}
 
 def _seg_dir(p1, p2):  # p1,p2 are (y,x)
     vx = p2[1] - p1[1]
@@ -40,7 +44,7 @@ def _angle_to_vp(p1, p2, vp_xy):
     nv = np.linalg.norm(v) + 1e-8
     v /= nv
     cosang = np.clip(abs(d[0] * v[0] + d[1] * v[1]), 0.0, 1.0)
-    return _strip_to_float(np.degrees(np.arccos(cosang)))
+    return float(np.degrees(np.arccos(cosang)))
 
 def _midpoint_in_building(seg_img, a, b, building_labels):
     """Check midpoint inside building mask (seg ids ∈ building_labels). a,b are (y,x)."""
@@ -70,9 +74,9 @@ def classify_lines(lines, scores, vps2d_dict, seg_img, config):
         dict with lists of indices:
           {'vertical_idx': [...], 'hori0_idx': [...], 'hori1_idx': [...], 'horizontal_idx': [...]}
     """
-    min_score     = _get_float(config["LINE_CLASSIFY"]["LineScore"])
-    tol_vert_deg  = _get_float(config["LINE_CLASSIFY"]["AngleThres"])
-    tol_horiz_deg = _get_float(config["LINE_CLASSIFY"].get("HorizAngleThres", tol_vert_deg))
+    min_score     = get_cfg_float(config, "LINE_CLASSIFY", "LineScore", 0.9)
+    tol_vert_deg  = get_cfg_float(config, "LINE_CLASSIFY", "AngleThres", 10)
+    tol_horiz_deg = get_cfg_float(config, "LINE_CLASSIFY", "HorizAngleThres", tol_vert_deg)
 
     building_labels = _parse_label_list(config, "BuildingLabel")
 
@@ -113,7 +117,7 @@ def classifyWithVPTs(n1, n2, vpt, config):
     Original SIHE helper: classify a single line vs one VP by angle at the midpoint.
     n1,n2 are (y,x); vpt is (x,y).
     """
-    t_angle = _strip_to_float(config["LINE_CLASSIFY"]["AngleThres"])
+    t_angle = get_cfg_float(config, "LINE_CLASSIFY", "AngleThres", 10)
     p1 = np.array([n1[1], n1[0]], float)  # to (x,y)
     p2 = np.array([n2[1], n2[0]], float)
     mpt = [(p1[0] + p2[0]) / 2.0, (p1[1] + p2[1]) / 2.0]
@@ -197,7 +201,7 @@ def check_if_bottom_lines(seg_img, a, b, config)->bool:
 
 def check_if_roof_lines(seg_img, a, b, config)->bool:
     """Is a horizontal line touching the 'sky' label around endpoints/midpoint?"""
-    sky_label = int(config["SEGMENTATION"]["SkyLabel"])
+    sky_label = int(get_cfg_float(config, "SEGMENTATION", "SkyLabel", 10))
 
     middle = (a + b) / 2.0
     norm_direction = (a - b) / (np.linalg.norm(a - b) + 1e-8)
@@ -223,11 +227,10 @@ def check_if_roof_lines(seg_img, a, b, config)->bool:
 
 def lineCoeff(p1, p2):
     """Coefficients (A,B,C) of the infinite line through p1,p2 where p are (y,x)."""
-    # convert to (x,y) for algebra if you want; here we keep (y,x) but formula accounts for it
     A = (p1[1] - p2[1])
     B = (p2[0] - p1[0])
     C = (p1[0] * p2[1] - p2[0] * p1[1])
-    return A, B, -C
+    return A, B, -C  # keep sign convention consistent with your existing code
 
 def intersection(L1, L2):
     """Intersection point (x,y) of two lines given by (A,B,C). Returns (x,y) or False if parallel."""
@@ -297,9 +300,9 @@ def filter_lines_outof_building_ade20k(
 
     # build dict for classifier
     vps2d_dict = {
-        "v1_right":    (_strip_to_float(vpts[0, 0]), _strip_to_float(vpts[0, 1])),
-        "v2_left":     (_strip_to_float(vpts[1, 0]), _strip_to_float(vpts[1, 1])),
-        "v3_vertical": (_strip_to_float(vpts[2, 0]), _strip_to_float(vpts[2, 1])),
+        "v1_right":    (float(vpts[0, 0]), float(vpts[0, 1])),
+        "v2_left":     (float(vpts[1, 0]), float(vpts[1, 1])),
+        "v3_vertical": (float(vpts[2, 0]), float(vpts[2, 1])),
     }
 
     idx = classify_lines(lines, line_scores, vps2d_dict, segimg, config)
@@ -392,7 +395,7 @@ def clausterLinesWithCenters(ht_set, config, using_height=False):
             X.append([(a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0])
     X = np.asarray(X)
 
-    max_DBSAN_dist = _strip_to_float(config["HEIGHT_MEAS"]["MaxDBSANDist"])
+    max_DBSAN_dist = get_cfg_float(config, "HEIGHT_MEAS", "MaxDBSANDist", 50)
     try:
         clustering = DBSCAN(eps=max_DBSAN_dist, min_samples=1).fit(X)
     except Exception:
@@ -408,8 +411,8 @@ def clausterLinesWithCenters(ht_set, config, using_height=False):
             if clustering.labels_[i] == label:
                 new_list.append(ht_set[i])
                 new_ht_list.append(ht_set[i][0])
-        medi_val = _strip_to_float(np.median(np.asarray(new_ht_list)))  # median height
-        mean_val = _strip_to_float(np.mean(np.asarray(new_ht_list)))    # mean height
+        medi_val = float(np.median(np.asarray(new_ht_list)))  # median height
+        mean_val = float(np.mean(np.asarray(new_ht_list)))    # mean height
         new_list.append(medi_val)
         new_list.append(mean_val)
         clustered_lines.append(new_list)
