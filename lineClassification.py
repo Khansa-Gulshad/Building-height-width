@@ -12,6 +12,12 @@ from lineRefinement import lineRefinementWithVPT, pointOnLine
 # --------------------------
 # small helpers
 # --------------------------
+def _get_float(cfg, section, key, default=None):
+    raw = cfg[section].get(key, default)
+    if raw is None:
+        return default
+    raw = str(raw).split(';')[0].split('#')[0].strip()
+    return float(raw)
 
 def _parse_label_list(config, key):
     """Parse comma-separated label list (e.g., '2,3') into a set of ints."""
