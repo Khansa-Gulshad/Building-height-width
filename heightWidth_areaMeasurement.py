@@ -321,18 +321,19 @@ def heightCalc(fname_dict, intrins, config, img_size=None, pitch=None,
 
         # ===== 5) Widths (only when horizontal VPs exist) =====
         wd_set = []
-        have_horiz_vps = loaded_detected_vps and (vps0_d3 is not None) and (vps1_d3 is not None)
+        if not use_pitch_only:  # we have detected horizontals available
+            cam_h = float(config["STREET_VIEW"]["CameraHeight"])
 
         if have_horiz_vps:
             cam_h = float(config["STREET_VIEW"]["CameraHeight"])
 
-            def add_widths_from(lines, v_dir, v_a, v_b, grp_id):
-                for ln in lines:
-                    ax, bx = ln[0], ln[1]      # [y,x]
-                    a_cam = invK @ np.array([ax[1], ax[0], 1.0])
-                    b_cam = invK @ np.array([bx[1], bx[0], 1.0])
-                    wval = sv_measurement_along(v_dir, v_a, v_b, a_cam, b_cam, zc=cam_h)
-                    wd_set.append([wval, ax, bx, grp_id])
+                def add_widths_from(lines, v_dir, v_a, v_b, grp_id):
+                    for ln in lines:
+                        ax, bx = ln[0], ln[1]
+                        a_cam = np.matmul(invK, np.array([ax[1], ax[0], 1.0]))
+                        b_cam = np.matmul(invK, np.array([bx[1], bx[0], 1.0]))
+                        wval = sv_measurement_along(v_dir, v_a, v_b, a_cam, b_cam, zc=cam_h)
+                        wd_set.append([wval, ax, bx, grp_id])
 
             # Prefer extended bottom baselines; otherwise use raw horizontal buckets
             if len(ext_bottoms) > 0:
