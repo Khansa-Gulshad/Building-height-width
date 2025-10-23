@@ -1,10 +1,6 @@
-# -*-encoding:utf-8-*-
-
-# -*-encoding:utf-8-*-
-
 import numpy as np
 import matplotlib.pyplot as plt
-import skimage
+from skimage import io as skio  # <-- explicit
 from filesIO import _strip_to_float
 from lineDrawingConfig import *  # assumes PLTOPTS, config sections exist
 
@@ -15,18 +11,24 @@ from lineDrawingConfig import *  # assumes PLTOPTS, config sections exist
 def _parse_label_list(cfg, key):
     """Parse comma-separated label list (e.g. '2,3') -> set[int]."""
     raw = str(cfg["SEGMENTATION"][key])
-    return set(int(x.strip()) for x in raw.split(",") if x.strip() != "")
+    return {int(x.strip()) for x in raw.split(",") if x.strip()}
 
-def _get_edge_thres(cfg):
-    val = str(cfg["LINE_REFINE"]["Edge_Thres"]).split(",")[0]
-    return int(val)
+def _get_int_cfg(cfg, section, key, default=None):
+    """Read an int from config; tolerates inline comments ' ; ' or ' # '."""
+    raw = cfg[section].get(key, default)
+    if raw is None:
+        return default
+    s = str(raw).split(";")[0].split("#")[0].strip()
+    if s == "":
+        return default
+    return int(float(s))
 
 def pointOnLine(a, b, p):
     """
     Project point p onto the infinite line through segment (a-b).
     All points are (y,x).
     """
-    l2 = _strip_to_float(np.sum((a - b) ** 2))
+    l2 = float(np.sum((a - b) ** 2))
     if l2 == 0:
         return a.copy()
     t = float(np.sum((p - a) * (b - a))) / l2
@@ -55,10 +57,10 @@ def extendLines(pt1, pt2, segmt, config):
       - downward until just above ground
     Returns two endpoints (y,x); empty lists if invalid.
     """
-    sky_label       = int(config["SEGMENTATION"]["SkyLabel"])
+    sky_label       = _get_int_cfg(config, "SEGMENTATION", "SkyLabel", 10)
     building_labels = _parse_label_list(config, "BuildingLabel")
     ground_labels   = _parse_label_list(config, "GroundLabel")
-    edge_thres      = _get_edge_thres(config)
+    edge_thres      = _get_int_cfg(config, "LINE_REFINE", "Edge_Thres", 10)
 
     # order so pt_up has smaller y
     if pt1[0] > pt2[0]:
@@ -96,7 +98,7 @@ def extendLines(pt1, pt2, segmt, config):
     if not (_in_build(pt_up_end) and _in_build(pt_down_end) and _in_build(pt_middle)):
         return [], []
 
-    # extend upward until hitting sky
+    # extend upward until hitting sky, then step back
     while True:
         nxt = pt_up_end - direction
         y, x = int(nxt[0] + 0.5), int(nxt[1] + 0.5)
@@ -105,10 +107,9 @@ def extendLines(pt1, pt2, segmt, config):
         if int(segmt[y, x]) == sky_label:
             break
         pt_up_end = nxt
-    # step back one to stay within building
-    pt_up_end = pt_up_end + direction
+    pt_up_end = pt_up_end + direction  # one step back into building
 
-    # extend downward until just before ground (and not leaving building -> ground)
+    # extend downward until just before ground
     out_of_building = False
     while True:
         nxt = pt_down_end + direction
@@ -122,12 +123,11 @@ def extendLines(pt1, pt2, segmt, config):
             if lab in building_labels:
                 out_of_building = False
         if lab in ground_labels and not out_of_building:
-            # step back one to stay above ground inside building
-            pt_down_end = pt_down_end
+            # do not advance onto ground; keep last in-building point
             break
         pt_down_end = nxt
 
-    # stay away from image edges
+    # keep away from edges
     if (pt_up_end[0] > rows - 1 - edge_thres or pt_up_end[0] < edge_thres or
         pt_up_end[1] < edge_thres or pt_up_end[1] > cols - 1 - edge_thres or
         pt_down_end[0] > rows - 1 - edge_thres or pt_down_end[0] < edge_thres or
@@ -143,7 +143,8 @@ def verticalLineExtending(img_name, vertical_lines, segimg, vptz_yx, config, ver
     """
     if verbose:
         plt.close()
-        org_img = skimage.io.imread(img_name)
+        plt.figure()                      # <-- ensure a figure exists
+        org_img = skio.imread(img_name)
         plt.imshow(org_img)
 
     extd_lines = []
@@ -173,8 +174,9 @@ def verticalLineExtendingWithBRLines(img_name, vertical_lines, roof_lines, botto
     (Unchanged behavior) Extend vertical lines using explicit roof/bottom horizontals.
     """
     if verbose:
-        org_img = skimage.io.imread(img_name)
         plt.close()
+        plt.figure()
+        org_img = skio.imread(img_name)
         plt.imshow(org_img)
 
     rows, cols = segimg.shape
@@ -248,7 +250,7 @@ def refine_horizontal_with_best_vp(line, vpt1_xy, vpt2_xy):
         v  = np.array([vp_xy[1] - m[0], vp_xy[0] - m[1]], float)  # (y,x) diff
         v /= (np.linalg.norm(v) + 1e-8)
         cosang = np.clip(abs(d[0] * v[0] + d[1] * v[1]), 0.0, 1.0)
-        return _strip_to_float(np.degrees(np.arccos(cosang)))
+        return float(np.degrees(np.arccos(cosang)))
     ang1 = _ang_to_vp(vpt1_xy)
     ang2 = _ang_to_vp(vpt2_xy)
     vpt_best_yx = np.array([vpt1_xy[1], vpt1_xy[0]]) if ang1 <= ang2 else np.array([vpt2_xy[1], vpt2_xy[0]])
@@ -260,13 +262,14 @@ def extendHorizontalWithinBuilding(pt1, pt2, segmt, config):
     Returns two endpoints (y,x); empty lists if invalid.
     """
     building_labels = _parse_label_list(config, "BuildingLabel")
-    edge_thres      = _get_edge_thres(config)
+    edge_thres      = _get_int_cfg(config, "LINE_REFINE", "Edge_Thres", 10)
 
     a = pt1.astype(float)
     b = pt2.astype(float)
 
     d = (b - a)
-    if abs(d[1]) < abs(d[0]):  # not horizontal enough (dx << dy)
+    # in (y,x), horizontal => |dx| >> |dy|
+    if abs(d[1]) < abs(d[0]):  # not horizontal enough
         return [], []
     direction = d / (np.linalg.norm(d) + 1e-8)
 
@@ -293,8 +296,7 @@ def extendHorizontalWithinBuilding(pt1, pt2, segmt, config):
         if not _in_build(nxt):
             break
         left = nxt
-    # step back one pixel
-    left = left + direction
+    left = left + direction  # step back into building
 
     # extend right
     while True:
@@ -305,7 +307,7 @@ def extendHorizontalWithinBuilding(pt1, pt2, segmt, config):
         if not _in_build(nxt):
             break
         right = nxt
-    right = right - direction
+    right = right - direction  # step back into building
 
     # keep away from edges
     if (left[0] < edge_thres or left[0] > rows - 1 - edge_thres or
@@ -324,7 +326,8 @@ def horizontalLineExtending(img_name, horizontal_lines, segimg, vpt1_xy, vpt2_xy
     """
     if verbose:
         plt.close()
-        org_img = skimage.io.imread(img_name)
+        plt.figure()
+        org_img = skio.imread(img_name)
         plt.imshow(org_img)
 
     extd = []
@@ -350,3 +353,4 @@ def horizontalLineExtending(img_name, horizontal_lines, segimg, vpt1_xy, vpt2_xy
         plt.close()
 
     return extd
+
