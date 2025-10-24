@@ -12,7 +12,7 @@ from tqdm import tqdm
 import threading
 import csv
 
-from modules.segmentation_images import save_all_products
+from street_view.segmentation_images import save_all_products
 
 from PIL import Image, ImageFile
 from io import BytesIO
