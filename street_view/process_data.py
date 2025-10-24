@@ -4,6 +4,7 @@ os.environ['USE_PYGEOS'] = '0'
 from transformers import AutoImageProcessor, Mask2FormerForUniversalSegmentation
 from scipy.signal import find_peaks
 import torch
+from . import config as cfg
 
 import google_streetview.api
 
@@ -22,23 +23,14 @@ import requests
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 def prepare_folders(city):
-    # Create folder for storing GVI results, sample points and road network if they don't exist yet
-    dir_path = os.path.join("results", city, "gvi")
-    if not os.path.exists(dir_path):
-        os.makedirs(dir_path)
-    
-    dir_path = os.path.join("results", city, "points")
-    if not os.path.exists(dir_path):
-        os.makedirs(dir_path)
+    base_dir = _city_base_dir(city)
+    for sub in ["gvi", "points", "roads", "sample_images"]:
+        os.makedirs(os.path.join(base_dir, sub), exist_ok=True)
 
-    dir_path = os.path.join("results", city, "roads")
-    if not os.path.exists(dir_path):
-        os.makedirs(dir_path)
-
-    dir_path = os.path.join("results", city, "sample_images")
-    if not os.path.exists(dir_path):
-        os.makedirs(dir_path)
-    
+def _city_base_dir(city: str) -> str:
+    # If you already have cfg.city_to_dir(city) and want that, use it here instead of raw city
+    city_dir = city  # or: cfg.city_to_dir(city)
+    return os.path.join(cfg.PROJECT_DIR, city_dir)
 
 def get_models():
     # Load the pretrained AutoImageProcessor from the "facebook/mask2former-swin-large-cityscapes-semantic" model
@@ -338,12 +330,13 @@ def download_images_for_points(gdf, access_token, max_workers, cut_by_road_centr
     processor, model = get_models()
 
     # Prepare CSV file path
-    csv_file = f"points-{file_name}.csv"
-    csv_path = os.path.join("results", city, csv_file)
+    base_dir = _city_base_dir(city)
+	csv_dir  = os.path.join(base_dir, "gvi")
+	os.makedirs(csv_dir, exist_ok=True)
 
-    # Check if the CSV file exists and chose the correct editing mode
-    file_exists = os.path.exists(csv_path)
-    mode = 'a' if file_exists else 'w'
+	csv_path = os.path.join(csv_dir, f"gvi-points-{file_name}.csv")
+	file_exists = os.path.exists(csv_path)
+	mode = "a" if file_exists else "w"
 
     # Create a lock object for thread safety
     results = []
