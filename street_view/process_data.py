@@ -262,52 +262,71 @@ def process_images(image, cut_by_road_centres, processor, model):
 
 # Download images
 def download_image(id, geometry, save_sample, city, cut_by_road_centres, access_token, processor, model):
-    # Check if the image id exists
     try:
-        # Parameters to get the image at 0°
-        params = [{
-                'size': '640x640',
-                'location': f"{geometry.y},{geometry.x}",
-                'heading': 0,
-                'fov': '90',
-                'key': f"{access_token}",
-            }]
-        
-        # Obtain the metadata of the image to request the missing tiles (90°, 180° and 270°) of the same panoramic
-        image_metadata = google_streetview.api.results(params)
+        # 0° tile to get pano_id and first image
+        params0 = [{
+            'size': '640x640',
+            'location': f"{geometry.y},{geometry.x}",
+            'heading': 0,
+            'fov': '90',
+            'key': f"{access_token}",
+        }]
+        first = google_streetview.api.results(params0)
+        pano_id = first.metadata[0]['pano_id']
 
-        panorama_images = [Image.open(requests.get(image_metadata.links[0], stream=True).raw)]
-        
-        # Create the authorization header for the Google Street View API request
+        panorama_images = [Image.open(requests.get(first.links[0], stream=True).raw)]
+
+        # same pano, other headings
         for angle in [90, 180, 270]:
             params = [{
                 'size': '640x640',
-                'pano': image_metadata.metadata[0]['pano_id'],
+                'pano': pano_id,
                 'heading': angle,
                 'fov': '90',
                 'key': f"{access_token}",
             }]
-
-            image_metadata = google_streetview.api.results(params)
-
-            panorama_images.append(Image.open(requests.get(image_metadata.links[0], stream=True).raw))
+            r = google_streetview.api.results(params)
+            panorama_images.append(Image.open(requests.get(r.links[0], stream=True).raw))
 
         if len(panorama_images) > 0:
-            # Stitch the images together horizontally to form the panorama
-            panorama = Image.new(panorama_images[0].mode, (len(panorama_images) * panorama_images[0].width, panorama_images[0].height))
-
-            # Paste all thei images together to form the panoramic image
+            # stitch 2560x640
+            W = len(panorama_images) * panorama_images[0].width
+            H = panorama_images[0].height
+            panorama = Image.new(panorama_images[0].mode, (W, H))
             for i, img in enumerate(panorama_images):
                 panorama.paste(img, (i * img.width, 0))
 
-            # Process the downloaded image using the provided image URL, is_panoramic flag, processor, and model
-            images, segmentations, result = process_images(panorama, cut_by_road_centres, processor, model)
+            # segment + crop (by road centre if requested)
+            images, segmentations, _ = process_images(panorama, cut_by_road_centres, processor, model)
+
+            # success flags
+            flags = [False, False]  # missing, error
 
             if save_sample and images is not None and segmentations is not None:
-                # 1) save RGB crops with requested naming: <pano_id>_1.jpg ... _4.jpg
-                _save_rgb_crops(city, pano_id, images)
-                # 2) keep original sample viz behavior (will name "<id>-{num}.png")
+                for k, (img_k, seg_k) in enumerate(zip(images, segmentations), start=1):
+                    image_id_k = f"{pano_id}_{k}"
+
+                    # RGB
+                    save_rgb(city, image_id_k, img_k)
+
+                    # full-class colorized seg
+                    if hasattr(seg_k, "detach"):
+                        seg_np = seg_k.detach().cpu().numpy().astype(np.uint8)
+                    else:
+                        seg_np = np.asarray(seg_k, dtype=np.uint8)
+                    save_full_color(city, image_id_k, seg_np)
+
+                    # 3-class (color + npz)
+                    mask3 = remap_to_three(seg_np)            # 0 ground, 1 building, 2 sky
+                    save_three_color(city, image_id_k, mask3)
+                    save_three_class_npz(city, image_id_k, mask3)
+
+                    # overlay (paper-style)
+                    save_full_overlay(city, image_id_k, np.array(img_k), seg_np)
+
+                # optional side-by-side samples under <City>/sample_images
                 save_images(city, id, images, segmentations)
+
         else:
             flags = [True, False]  # missing, not error
             pano_id = None
@@ -319,7 +338,6 @@ def download_image(id, geometry, save_sample, city, cut_by_road_centres, access_
     # CSV row: id, x, y, pano_id, missing, error
     row = [id, geometry.x, geometry.y, pano_id] + flags
     return row
-
 
 def download_images_for_points(gdf, access_token, max_workers, cut_by_road_centres, city, file_name):
     processor, model = get_models()
