@@ -322,9 +322,12 @@ def download_image(id, geometry, save_sample, city, cut_by_road_centres, access_
 
             # Process the downloaded image using the provided image URL, is_panoramic flag, processor, and model
             images, segmentations, result = process_images(panorama, cut_by_road_centres, processor, model)
-
-            if save_sample:
-                save_images(city, id, images, segmentations, result[0])
+			pano_id = image_metadata.metadata[0]['pano_id']
+			
+			if save_sample and images is not None and segmentations is not None:
+				for k, (img_k, seg_k) in enumerate(zip(images, segmentations), start=1):
+					image_id_k = f"{pano_id}_{k}"
+					save_all_products(city, image_id_k, img_k, seg_k, out_root=cfg.PROJECT_DIR)
         else:
             # There's not an image in this point
             result = [None, True, False]
@@ -365,7 +368,7 @@ def download_images_for_points(gdf, access_token, max_workers, cut_by_road_centr
 
         # Write the header row if the file is newly created
         if not file_exists:
-            writer.writerow(["id", "x", "y", "GVI", "missing", "error"])
+            writer.writerow(["id", "x", "y", "pano_id", "GVI", "missing", "error"])
         
         # Create a ThreadPoolExecutor to process images concurrently
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -383,11 +386,13 @@ def download_images_for_points(gdf, access_token, max_workers, cut_by_road_centr
             for future in tqdm(as_completed(futures), total=len(futures), desc=f"Downloading images"):
                 # Retrieve the result of the completed future
                 image_result = future.result()
+				
 
                 # Acquire the lock before appending to results and writing to the CSV file
                 with lock:
                     results.append(image_result)
                     writer.writerow(image_result)
+					result.insert(0, pano_id)
 
     # Return the processed image results
     return results
