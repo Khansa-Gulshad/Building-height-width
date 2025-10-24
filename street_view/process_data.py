@@ -29,10 +29,11 @@ BASE_DIR = "/users/project1/pt01183/Building-height-width"
 
 def _city_dir(city: str) -> str:
     return os.path.join(BASE_DIR, city)
-
-def prepare_folders(city):
-    for sub in ["points", "roads", "sample_images", "save_rgb/imgs", "manifests"]:
-        os.makedirs(os.path.join(_city_dir(city), sub), exist_ok=True)
+	
+def prepare_folders(city: str):
+    base = os.path.join(cfg.PROJECT_DIR, cfg.city_to_dir(city))
+    for sub in ["seg", "seg_3class", "seg_3class_vis", "seg_full_vis", "seg_full_overlay", "sample_images", "save_rgb", "save_three_class_npz"]:
+        os.makedirs(os.path.join(base, sub), exist_ok=True)
     
 
 def get_models():
