@@ -425,6 +425,21 @@ def heightCalc(fname_dict, intrins, config, img_size=None, pitch=None, use_pitch
                     plt.scatter(b[1], b[0], **PLTOPTS)
             if verbose and ax_line is not None:
                 ax_legends.append(ax_line)
+        try:
+            import csv, os
+            out_csv = "/w/PROJ/heights.csv"   # change path if you want
+            group_counts = [len(g) - 2 for g in grouped_lines]  # each group list ends with [median, mean]
+            write_header = not os.path.exists(out_csv)
+            os.makedirs(os.path.dirname(out_csv), exist_ok=True)
+            with open(out_csv, "a", newline="") as f:
+                w = csv.writer(f)
+                if write_header:
+                    w.writerow(["image", "group_idx", "median_m", "mean_m", "count"])
+                for gi, (med, mean) in enumerate(heights):
+                    w.writerow([img_fname, gi, float(med), float(mean), int(group_counts[gi])])
+            print("heights ->", out_csv)
+        except Exception as e:
+            print("[warn] could not write heights CSV:", e)
 
         if verbose:
             plt.legend(ax_legends, ['average_height = %.4fm, median_height = %.4fm' % (y, x) for x, y in heights])
