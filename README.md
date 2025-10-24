@@ -24,10 +24,10 @@ data/                           # default folder for placing the data
   lines/                        # .npz and .svg files from LCNN model
   vpts/                         # outputs from NeurVPS + post-processing
     000000.npz ...              # raw model outputs (contain vpts_pd)
+    .....png                    # optional visualization overlays (PNG)
     su3_error.npz               # AA curve file (unused for you; safe to ignore)
     json/                       # per-image 2D VP results (ordered + scaled)
       <image_stem>.json
-    overlays/                   # optional visualization overlays (PNG)
   wflike/                       # "wireframe-like" dataset view for NeurVPS
     valid.txt                   # split list (relative paths like A/xxx.png)
     test.txt
