@@ -426,7 +426,6 @@ def heightCalc(fname_dict, intrins, config, img_size=None, pitch=None, use_pitch
             if verbose and ax_line is not None:
                 ax_legends.append(ax_line)
         try:
-            import csv, os
             out_csv = "/w/PROJ/heights.csv"   # change path if you want
             group_counts = [len(g) - 2 for g in grouped_lines]  # each group list ends with [median, mean]
             write_header = not os.path.exists(out_csv)
