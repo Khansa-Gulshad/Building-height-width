@@ -13,7 +13,10 @@ from tqdm import tqdm
 import threading
 import csv
 
-from .segmentation_images import save_all_products
+from modules.segmentation import (
+    save_full_color, save_three_color, remap_to_three, save_full_overlay, save_rgb,
+    save_three_class_mask, save_three_class_npz   # <-- add these two
+)
 
 from PIL import Image, ImageFile
 from io import BytesIO
