@@ -4,18 +4,12 @@ import osmnx as ox
 import numpy as np
 
 def get_road_network(city):
-    G = ox.graph_from_place(city, network_type="drive", simplify=True)
-    unique_roads = set()
-    G_simplified = G.copy()
-    for u, v, key, data in G.edges(keys=True, data=True):
-        if (v, u) in unique_roads:
-            G_simplified.remove_edge(u, v, key)
-        else:
-            unique_roads.add((u, v))
-    G = G_simplified
+    cf = '["highway"~"primary|secondary|tertiary|residential|primary_link|secondary_link|tertiary_link|living_street|service|unclassified"]'
+    G = ox.graph_from_place(city, simplify=True, custom_filter=cf)
+    # (duplicate-edge removal optional)
     G_proj = ox.project_graph(G)
     _, edges = ox.graph_to_gdfs(G_proj)
-    return edges  # projected CRS (meters)
+    return edges
 
 
 # Get a list of points over the road map with a N distance between them
