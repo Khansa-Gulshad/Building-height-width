@@ -133,7 +133,7 @@ def crop_panoramic_images_roads(original_width, image, segmentation, road_centre
     road_centre = [centre for centre in road_centre if centre not in duplicated_centres]
 
     # Calculate dimensions and offsets
-    w4 = int(width / 4) # 
+    w4 = int(original_width / 4) # 
     h4 = 0
     hFor43 = height
     w98 = width + (w4 / 2)
