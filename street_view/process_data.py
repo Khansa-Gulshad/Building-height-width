@@ -4,7 +4,6 @@ os.environ['USE_PYGEOS'] = '0'
 from transformers import AutoImageProcessor, Mask2FormerForUniversalSegmentation
 from scipy.signal import find_peaks
 import torch
-from . import config as cfg
 
 import google_streetview.api
 
@@ -13,7 +12,7 @@ from tqdm import tqdm
 import threading
 import csv
 
-from modules.segmentation import (
+from street_view.segmentation_images import  (
     save_full_color, save_three_color, remap_to_three, save_full_overlay, save_rgb,
     save_three_class_mask, save_three_class_npz   # <-- add these two
 )
@@ -25,15 +24,16 @@ import requests
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
-def prepare_folders(city):
-    base_dir = _city_base_dir(city)
-    for sub in ["gvi", "points", "roads", "sample_images"]:
-        os.makedirs(os.path.join(base_dir, sub), exist_ok=True)
+# ---------- PATHS ----------
+BASE_DIR = "/users/project1/pt01183/Building-height-width"
 
-def _city_base_dir(city: str) -> str:
-    # If you already have cfg.city_to_dir(city) and want that, use it here instead of raw city
-    city_dir = city  # or: cfg.city_to_dir(city)
-    return os.path.join(cfg.PROJECT_DIR, city_dir)
+def _city_dir(city: str) -> str:
+    return os.path.join(BASE_DIR, city)
+
+def prepare_folders(city):
+    for sub in ["points", "roads", "sample_images", "save_rgb/imgs", "manifests"]:
+        os.makedirs(os.path.join(_city_dir(city), sub), exist_ok=True)
+    
 
 def get_models():
     # Load the pretrained AutoImageProcessor from the "facebook/mask2former-swin-large-cityscapes-semantic" model
@@ -73,66 +73,49 @@ def segment_images(image, processor, model):
 
 # Based on Matthew Danish code (https://github.com/mrd/vsvi_filter/tree/master)
 def run_length_encoding(in_array):
-    arr = np.asarray(in_array)
-    n = arr.shape[0]
-    if n == 0:
-        return None, None
-    # find change points
-    pairwise_unequal = arr[1:] != arr[:-1]
-    change_points = np.append(np.where(pairwise_unequal)[0], n - 1)
-    run_lengths = np.diff(np.append(-1, change_points))
-    return run_lengths, arr[change_points]  # values at run ends (bool if input is bool)
+    # Convert input array to a NumPy array
+    image_array = np.asarray(in_array)
+    length = len(image_array)
+    if length == 0: 
+        # Return None values if the array is empty
+        return (None, None, None)
+    else:
+        # Calculate run lengths and change points in the array
+        pairwise_unequal = image_array[1:] != image_array[:-1]
+        change_points = np.append(np.where(pairwise_unequal), length - 1)   # must include last element posi
+        run_lengths = np.diff(np.append(-1, change_points))       # run lengths
+        return(run_lengths, image_array[change_points])
 
 def get_road_pixels_per_column(prediction):
-    """
-    prediction: HxW labels (torch or numpy). Returns per-column longest vertical run of 'road' (label==0).
-    """
-    # ensure numpy boolean mask
-    if torch.is_tensor(prediction):
-        prediction = prediction.detach().cpu().numpy()
-    else:
-        prediction = np.asarray(prediction)
-
-    road_pixels = (prediction == 0)  # HxW bool
-    H, W = road_pixels.shape
-    out = np.zeros(W, dtype=np.int32)
-
-    for i in range(W):
-        runs, vals = run_length_encoding(road_pixels[:, i])
-        if runs is None:
-            out[i] = 0
-            continue
-        # select lengths where the run ends in True (road)
-        idx = np.nonzero(vals)[0]
-        if idx.size == 0:
-            out[i] = 0
-        else:
-            out[i] = int(runs[idx].max())
-    return out
+    # Check which pixels in the prediction array correspond to roads (label 0)
+    road_pixels = prediction == 0.0
+    road_pixels_per_col = np.zeros(road_pixels.shape[1])
+    
+    for i in range(road_pixels.shape[1]):
+        # Encode the road pixels in each column and calculate the maximum run length
+        run_lengths, values = run_length_encoding(road_pixels[:,i])
+        road_pixels_per_col[i] = run_lengths[values.nonzero()].max(initial=0)
+    return road_pixels_per_col
 
 def get_road_centres(prediction, distance=2000, prominence=100):
-    # prediction must be numpy
-    if torch.is_tensor(prediction):
-        prediction = prediction.detach().cpu().numpy()
-    else:
-        prediction = np.asarray(prediction)
-
+    # Get the road pixels per column in the prediction
     road_pixels_per_col = get_road_pixels_per_column(prediction)
+
+    # Find peaks in the road_pixels_per_col array based on distance and prominence criteria
     peaks, _ = find_peaks(road_pixels_per_col, distance=distance, prominence=prominence)
+    
     return peaks
 
 
 def find_road_centre(segmentation):
-    """
-    segmentation: HxW label map (torch or numpy). Returns peak x-indices.
-    """
-    # ensure numpy
-    seg_np = segmentation.detach().cpu().numpy() if torch.is_tensor(segmentation) else np.asarray(segmentation)
-    # scale thresholds relative to a 5760x2880 baseline (your original logic)
-    distance   = int(2000 * seg_np.shape[1] // 5760)
-    prominence = int( 100 * seg_np.shape[0] // 2880)
-    centres = get_road_centres(seg_np, distance=distance, prominence=prominence)
-    return centres
+    # Calculate distance and prominence thresholds based on the segmentation shape
+	distance = int(2000 * segmentation.shape[1] // 5760)
+	prominence = int(100 * segmentation.shape[0] // 2880)
+	
+    # Find road centers based on the segmentation, distance, and prominence thresholds
+	centres = get_road_centres(segmentation, distance=distance, prominence=prominence)
+	
+	return centres
 
 
 def crop_panoramic_images_roads(original_width, image, segmentation, road_centre):
@@ -145,7 +128,7 @@ def crop_panoramic_images_roads(original_width, image, segmentation, road_centre
     road_centre = [centre for centre in road_centre if centre not in duplicated_centres]
 
     # Calculate dimensions and offsets
-    w4 = int(original_width / 4) # 
+    w4 = int(width / 4) # 
     h4 = 0
     hFor43 = height
     w98 = width + (w4 / 2)
@@ -231,16 +214,23 @@ def crop_panoramic_images(image, segmentation):
         pickles.append(cropped_segmentation)
     
     return images, pickles
-    
+
 
 def process_images(image, cut_by_road_centres, processor, model):
-    try:
+    try:      
+        # Get the size of the image
         width, height = image.size
-        segmentation = segment_images(image, processor, model)
 
+        # Apply the semantic segmentation to the image
+        segmentation = segment_images(image, processor, model)
+            
         if cut_by_road_centres:
+            # Create a widened panorama by wrapping the first 25% of the image onto the right edge
+            width, height = image.size
             w4 = int(0.25 * width)
+                
             segmentation_25 = segmentation[:, :w4]
+            # Concatenate the tensors along the first dimension (rows) to create the widened panorama with the segmentations
             segmentation_road = torch.cat((segmentation, segmentation_25), dim=1)
 
             cropped_image = image.crop((0, 0, w4, height))
@@ -248,113 +238,126 @@ def process_images(image, cut_by_road_centres, processor, model):
             widened_image.paste(image, (0, 0))
             widened_image.paste(cropped_image, (width, 0))
 
+            # Find the road centers to determine if the image is suitable for analysis
             road_centre = find_road_centre(segmentation_road)
+                
+            # Crop the image and its segmentation based on the previously found road centers
             images, pickles = crop_panoramic_images_roads(width, widened_image, segmentation_road, road_centre)
+        
+    
         else:
+			
+            # Cut panoramic image in 4 equal parts
+            # Crop the image and its segmentation based on the previously found road centers
             images, pickles = crop_panoramic_images(image, segmentation)
+			
 
-        # Return just the flags we need: [missing, error]
         return images, pickles, [False, False]
 
-    except Exception:
+    except:
+        # If there was an error while processing the image, set the "error" flag to true and continue with other images
         return None, None, [True, True]
 
 
 # Download images
 def download_image(id, geometry, save_sample, city, cut_by_road_centres, access_token, processor, model):
+    # Check if the image id exists
     try:
+        # Parameters to get the image at 0°
         params = [{
-            'size': '640x640',
-            'location': f"{geometry.y},{geometry.x}",
-            'heading': 0,
-            'fov': '90',
-            'key': f"{access_token}",
-        }]
-        first = google_streetview.api.results(params)
-        pano_id = first.metadata[0]['pano_id']
+                'size': '640x640',
+                'location': f"{geometry.y},{geometry.x}",
+                'heading': 0,
+                'fov': '90',
+                'key': f"{access_token}",
+            }]
+        
+        # Obtain the metadata of the image to request the missing tiles (90°, 180° and 270°) of the same panoramic
+        image_metadata = google_streetview.api.results(params)
 
-        panorama_images = [Image.open(requests.get(first.links[0], stream=True).raw)]
+        panorama_images = [Image.open(requests.get(image_metadata.links[0], stream=True).raw)]
+        
+        # Create the authorization header for the Google Street View API request
         for angle in [90, 180, 270]:
             params = [{
                 'size': '640x640',
-                'pano': pano_id,
+                'pano': image_metadata.metadata[0]['pano_id'],
                 'heading': angle,
                 'fov': '90',
                 'key': f"{access_token}",
             }]
-            resp = google_streetview.api.results(params)
-            panorama_images.append(Image.open(requests.get(resp.links[0], stream=True).raw))
+
+            image_metadata = google_streetview.api.results(params)
+
+            panorama_images.append(Image.open(requests.get(image_metadata.links[0], stream=True).raw))
 
         if len(panorama_images) > 0:
-            W = len(panorama_images) * panorama_images[0].width
-            H = panorama_images[0].height
-            panorama = Image.new(panorama_images[0].mode, (W, H))
+            # Stitch the images together horizontally to form the panorama
+            panorama = Image.new(panorama_images[0].mode, (len(panorama_images) * panorama_images[0].width, panorama_images[0].height))
+
+            # Paste all thei images together to form the panoramic image
             for i, img in enumerate(panorama_images):
                 panorama.paste(img, (i * img.width, 0))
 
-            images, segmentations, flags = process_images(panorama, cut_by_road_centres, processor, model)
+            # Process the downloaded image using the provided image URL, is_panoramic flag, processor, and model
+            images, segmentations, result = process_images(panorama, cut_by_road_centres, processor, model)
 
             if save_sample and images is not None and segmentations is not None:
-                for k, (img_k, seg_k) in enumerate(zip(images, segmentations), start=1):
-                    image_id_k = f"{pano_id}_{k}"
-                    save_all_products(city, image_id_k, img_k, seg_k, out_root=cfg.PROJECT_DIR)
-
-            if flags is None:
-                flags = [True, True]            # missing,error
+                # 1) save RGB crops with requested naming: <pano_id>_1.jpg ... _4.jpg
+                _save_rgb_crops(city, pano_id, images)
+                # 2) keep original sample viz behavior (will name "<id>-{num}.png")
+                save_images(city, id, images, segmentations)
         else:
-            flags = [True, False]               # missing but not an internal error
+            flags = [True, False]  # missing, not error
+            pano_id = None
 
     except Exception:
+        flags = [True, True]  # missing, error
         pano_id = None
-        flags = [True, True]                    # missing + error
 
     # CSV row: id, x, y, pano_id, missing, error
-    return [id, geometry.x, geometry.y, pano_id] + flags
+    row = [id, geometry.x, geometry.y, pano_id] + flags
+    return row
+
 
 def download_images_for_points(gdf, access_token, max_workers, cut_by_road_centres, city, file_name):
     processor, model = get_models()
 
-    # Build CSV under /<PROJECT>/<City>/gvi/gvi-points-<file_name>.csv
-    base_dir = _city_base_dir(city)
-    csv_dir = os.path.join(base_dir, "gvi")
-    os.makedirs(csv_dir, exist_ok=True)
+    # ensure city/<points> dir exists (consistent with your structure)
+    city_dir = _city_dir(city)  # BASE_DIR/<City>
+    points_dir = os.path.join(city_dir, "points")
+    os.makedirs(points_dir, exist_ok=True)
 
-    csv_path = os.path.join(csv_dir, f"gvi-points-{file_name}.csv")
+    # CSV path: /users/.../Building-height-width/<City>/points/points-<file_name>.csv
+    csv_path = os.path.join(points_dir, f"points-{file_name}.csv")
     file_exists = os.path.exists(csv_path)
     mode = "a" if file_exists else "w"
 
     results = []
     lock = threading.Lock()
 
-    with open(csv_path, mode, newline='') as csvfile:
+    with open(csv_path, mode, newline="") as csvfile:
         writer = csv.writer(csvfile)
         if not file_exists:
+            # no GVI/IAI/OSI in header, but include pano_id per your request
             writer.writerow(["id", "x", "y", "pano_id", "missing", "error"])
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = []
             for _, row in gdf.iterrows():
                 try:
-                    # default to True if save_sample column is absent
-                    row_save = row.get("save_sample", True)
                     futures.append(executor.submit(
                         download_image,
-                        row["id"],
-                        row["geometry"],
-                        row_save,
-                        city,
-                        cut_by_road_centres,
-                        access_token,
-                        processor,
-                        model
+                        row["id"], row["geometry"], row.get("save_sample", True),
+                        city, cut_by_road_centres, access_token, processor, model
                     ))
                 except Exception as e:
-                    print(f"Exception occurred for row {row.get('id', '?')}: {str(e)}")
+                    print(f"Exception scheduling row {row['id']}: {e}")
 
             for future in tqdm(as_completed(futures), total=len(futures), desc="Downloading images"):
-                image_result = future.result()
+                row_out = future.result()
                 with lock:
-                    results.append(image_result)
-                    writer.writerow(image_result)
+                    results.append(row_out)
+                    writer.writerow(row_out)
 
     return results
