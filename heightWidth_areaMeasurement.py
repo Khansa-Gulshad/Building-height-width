@@ -8,6 +8,7 @@ from lineRefinement import *
 from filesIO import *
 import skimage.io
 import copy
+import csv
 
 
 def gt_measurement(zgt_img, a, b, verbose=False):
