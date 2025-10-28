@@ -426,6 +426,54 @@ def heightCalc(fname_dict, intrins, config, img_size=None, pitch=None, use_pitch
                     plt.scatter(b[1], b[0], **PLTOPTS)
             if verbose and ax_line is not None:
                 ax_legends.append(ax_line)
+                
+         # --- BEGIN: export vertical references for width ---
+        def rc_to_xy(pt_rc):
+            # convert [row, col] -> [x, y]
+            return np.array([float(pt_rc[1]), float(pt_rc[0])], dtype=float)
+
+        vertical_refs_xy = []   # list of (Vt_xy, Vb_xy, median_h_m)
+
+        if grouped_lines and len(grouped_lines) > 0:
+            for gi, grp in enumerate(grouped_lines):
+                # grp: [ [ht, a_rc, b_rc, (gt_org), (gt_expd)], ..., median, mean ]
+                median_h_m = float(grp[-2])
+                lines_in_grp = grp[:-2]
+                if len(lines_in_grp) == 0:
+                    continue
+
+                # pick member closest to cluster median
+                sel = int(np.argmin([abs(li[0] - median_h_m) for li in lines_in_grp]))
+                _, a_rc, b_rc, *_ = lines_in_grp[sel]
+
+                # enforce top/bottom by row (y)
+                if a_rc[0] > b_rc[0]:
+                    a_rc, b_rc = b_rc, a_rc
+
+                Vt_xy = rc_to_xy(a_rc)   # [x,y]
+                Vb_xy = rc_to_xy(b_rc)   # [x,y]
+                vertical_refs_xy.append((Vt_xy, Vb_xy, median_h_m))
+        else:
+            print("[warn] grouped_lines empty; no vertical references exported.")
+
+        # save a sidecar so the width step can load it
+        try:
+            side_npz = img_fname.replace('save_rgb/imgs', 'metrics').replace('.jpg', '_vertical_refs.npz')
+            os.makedirs(os.path.dirname(side_npz), exist_ok=True)
+            # store as plain arrays to avoid pickle
+            if len(vertical_refs_xy) > 0:
+                Vt = np.array([v[0] for v in vertical_refs_xy], dtype=float)   # (N,2)
+                Vb = np.array([v[1] for v in vertical_refs_xy], dtype=float)   # (N,2)
+                Hm = np.array([v[2] for v in vertical_refs_xy], dtype=float)   # (N,)
+            else:
+                Vt = np.zeros((0,2), float); Vb = np.zeros((0,2), float); Hm = np.zeros((0,), float)
+            np.savez(side_npz, Vt_xy=Vt, Vb_xy=Vb, median_h_m=Hm,
+                     heights_csv="/w/PROJ/heights.csv")
+            print("vertical refs ->", side_npz)
+        except Exception as e:
+            print("[warn] could not save vertical refs:", e)
+        # --- END: export vertical references for width ---
+        
         try:
             out_csv = "/w/PROJ/heights.csv"   # change path if you want
             group_counts = [len(g) - 2 for g in grouped_lines]  # each group list ends with [median, mean]
@@ -459,49 +507,3 @@ def heightCalc(fname_dict, intrins, config, img_size=None, pitch=None, use_pitch
 
     except IOError:
         print("file does not exist\n")
-# --- BEGIN: export vertical references for width ---
-
-def rc_to_xy(pt_rc):
-    # convert [row, col] -> [x, y]
-    return np.array([float(pt_rc[1]), float(pt_rc[0])], dtype=float)
-
-vertical_refs_xy = []        # list of (Vt_xy, Vb_xy, median_h_m)
-vertical_refs_idx = []       # (cluster_index, ...)
-
-if grouped_lines is not None and len(grouped_lines) > 0:
-    for gi, grp in enumerate(grouped_lines):
-        # grp shape: [ [ht, a_rc, b_rc, (gt_org), (gt_expd)], ..., median, mean ]
-        median_h_m = float(grp[-2])
-        lines_in_grp = grp[:-2]
-        if len(lines_in_grp) == 0:
-            continue
-
-        # pick the member whose height is closest to the cluster median
-        sel = int(np.argmin([abs(li[0] - median_h_m) for li in lines_in_grp]))
-        _, a_rc, b_rc, *_ = lines_in_grp[sel]
-
-        # enforce top (smaller row) / bottom (larger row)
-        if a_rc[0] > b_rc[0]:
-            a_rc, b_rc = b_rc, a_rc
-
-        Vt_xy = rc_to_xy(a_rc)   # [x,y]
-        Vb_xy = rc_to_xy(b_rc)   # [x,y]
-        vertical_refs_xy.append((Vt_xy, Vb_xy, median_h_m))
-        vertical_refs_idx.append((gi, (Vt_xy, Vb_xy, median_h_m)))
-else:
-    print("[warn] grouped_lines empty; no vertical references exported.")
-
-# save a sidecar so the width step can load it
-try:
-    side_dir = img_fname.replace('save_rgb/imgs', 'metrics')
-    os.makedirs(os.path.dirname(side_dir), exist_ok=True)
-    np.savez(
-        side_dir.replace('.jpg', '_vertical_refs.npz'),
-        vertical_refs_xy=np.array(vertical_refs_xy, dtype=object),
-        heights_csv="/w/PROJ/heights.csv"
-    )
-    print("vertical refs ->", side_dir.replace('.jpg', '_vertical_refs.npz'))
-except Exception as e:
-    print("[warn] could not save vertical refs:", e)
-
-# --- END: export vertical references for width ---
