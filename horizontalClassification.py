@@ -65,32 +65,32 @@ def check_if_line_lies_in_building_area(seg_img, a, b, building_label, ratio=10)
     return True
 
 
-# ---------- Optional roof/base tests (if you want them now) ----------
-# def is_bottom_like(seg_img, a, b, ground_labels, ratio=10):
-#     """True if any of the 9 sample points hits ground."""
-#     middle = (a + b) / 2.0
-#     v = (a - b).astype(float); v /= (np.linalg.norm(v) + 1e-9)
-#     ppd = np.array([v[1], -v[0]]) * ratio
-#     pts = np.vstack([a, a-ppd, a+ppd, b, b-ppd, b+ppd, middle, middle-ppd, middle+ppd])
-#     rows, cols = seg_img.shape
-#     for pcl in pts:
-#         r = int(pcl[0] + 0.5); c = int(pcl[1] + 0.5)
-#         if 0 <= r < rows and 0 <= c < cols and seg_img[r, c] in ground_labels:
-#             return True
-#     return False
+---------- Optional roof/base tests (if you want them now) ----------
+def is_bottom_like(seg_img, a, b, ground_labels, ratio=10):
+    """True if any of the 9 sample points hits ground."""
+    middle = (a + b) / 2.0
+    v = (a - b).astype(float); v /= (np.linalg.norm(v) + 1e-9)
+    ppd = np.array([v[1], -v[0]]) * ratio
+    pts = np.vstack([a, a-ppd, a+ppd, b, b-ppd, b+ppd, middle, middle-ppd, middle+ppd])
+    rows, cols = seg_img.shape
+    for pcl in pts:
+        r = int(pcl[0] + 0.5); c = int(pcl[1] + 0.5)
+        if 0 <= r < rows and 0 <= c < cols and seg_img[r, c] in ground_labels:
+            return True
+    return False
 
-# def is_roof_like(seg_img, a, b, sky_label, ratio=10):
-#     """True if any of the 9 sample points hits sky."""
-#     middle = (a + b) / 2.0
-#     v = (a - b).astype(float); v /= (np.linalg.norm(v) + 1e-9)
-#     ppd = np.array([v[1], -v[0]]) * ratio
-#     pts = np.vstack([a, a-ppd, a+ppd, b, b-ppd, b+ppd, middle, middle-ppd, middle+ppd])
-#     rows, cols = seg_img.shape
-#     for pcl in pts:
-#         r = int(pcl[0] + 0.5); c = int(pcl[1] + 0.5)
-#         if 0 <= r < rows and 0 <= c < cols and seg_img[r, c] == sky_label:
-#             return True
-#     return False
+def is_roof_like(seg_img, a, b, sky_label, ratio=10):
+    """True if any of the 9 sample points hits sky."""
+    middle = (a + b) / 2.0
+    v = (a - b).astype(float); v /= (np.linalg.norm(v) + 1e-9)
+    ppd = np.array([v[1], -v[0]]) * ratio
+    pts = np.vstack([a, a-ppd, a+ppd, b, b-ppd, b+ppd, middle, middle-ppd, middle+ppd])
+    rows, cols = seg_img.shape
+    for pcl in pts:
+        r = int(pcl[0] + 0.5); c = int(pcl[1] + 0.5)
+        if 0 <= r < rows and 0 <= c < cols and seg_img[r, c] == sky_label:
+            return True
+    return False
 
 
 # ---------- Main: filter + classify horizontals ----------
