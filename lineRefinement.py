@@ -8,89 +8,101 @@ import numpy as np
 
 def extendLines(pt1, pt2, segmt, config):
     """
-    Extend the vertical line segments by referring to the segmentation image
-    :param pt1: end point of the line
-    :param pt2: end point of the line
-    :param segmt: semantic segmentation image array
-    :return:
+    Extend a vertical line segment until roof (building→sky) upward and ground (building→ground) downward.
+    NOTE: points are [row, col] = [y, x]. Compare row with `rows`, col with `cols`.
     """
-
-    sky_label = int(config["SEGMENTATION"]["SkyLabel"])
+    sky_label      = int(config["SEGMENTATION"]["SkyLabel"])
     building_label = int(config["SEGMENTATION"]["BuildingLabel"])
-    ground_label = np.cast["int"](config["SEGMENTATION"]["GroundLabel"].split(','))
-    edge_thres = np.cast["int"](config["LINE_REFINE"]["Edge_Thres"].split(','))
+    ground_label   = [int(x) for x in str(config["SEGMENTATION"]["GroundLabel"]).split(',')]
+    edge_thres     = int(str(config["LINE_REFINE"]["Edge_Thres"]).split(',')[0])
 
-    if pt1[0] > pt2[0]:  # 0 is the x axis
-        pt_up = pt2
-        pt_down = pt1
+    # Smaller row index = higher in the image ⇒ "up"
+    if pt1[0] > pt2[0]:
+        pt_up, pt_down = pt2.copy(), pt1.copy()
     else:
-        pt_up = pt1
-        pt_down = pt2
+        pt_up, pt_down = pt1.copy(), pt2.copy()
 
     if np.linalg.norm(pt_down - pt_up) == 0:
         return [], []
-    direction = (pt_down - pt_up) / np.linalg.norm(pt_down - pt_up)
-    pt_up_end = pt_up
-    pt_down_end = pt_down
-    pt_middle = (pt_up + pt_down) / 2.0
+
+    direction  = (pt_down - pt_up) / np.linalg.norm(pt_down - pt_up)
+    pt_up_end  = pt_up.copy()
+    pt_down_end= pt_down.copy()
+    pt_middle  = (pt_up + pt_down) / 2.0
 
     rows, cols = segmt.shape
-    if pt_up_end[0] > rows - 2:
-        pt_up_end[0] = rows - 2
-    if pt_up_end[1] > cols - 2:
-        pt_up_end[1] = cols - 2
-    if pt_down_end[0] > rows - 2:
-        pt_down_end[0] = rows - 2
-    if pt_down_end[1] > cols - 2:
-        pt_down_end[1] = cols - 2
 
-    if pt_middle[0] >= rows - 1 or pt_middle[1] >= cols - 1:
+    # Clamp initial endpoints inside image (row vs rows, col vs cols)
+    pt_up_end[0]   = min(rows - 2, max(0, pt_up_end[0]))
+    pt_up_end[1]   = min(cols - 2, max(0, pt_up_end[1]))
+    pt_down_end[0] = min(rows - 2, max(0, pt_down_end[0]))
+    pt_down_end[1] = min(cols - 2, max(0, pt_down_end[1]))
+
+    if not (0 <= pt_middle[0] < rows and 0 <= pt_middle[1] < cols):
         return [], []
 
-    if segmt[np.cast['int'](pt_up_end[0] + 0.5)][np.cast['int'](pt_up_end[1] + 0.5)] != building_label or \
-       segmt[np.cast['int'](pt_down_end[0] + 0.5)][np.cast['int'](pt_down_end[1] + 0.5)] != building_label or \
-       segmt[np.cast['int'](pt_middle[0] + 0.5)][np.cast['int'](pt_middle[1] + 0.5)] != building_label:
+    # Require the three probe points to be on building
+    rU, cU = int(pt_up_end[0] + 0.5),   int(pt_up_end[1] + 0.5)
+    rD, cD = int(pt_down_end[0] + 0.5), int(pt_down_end[1] + 0.5)
+    rM, cM = int(pt_middle[0] + 0.5),   int(pt_middle[1] + 0.5)
+    if (segmt[rU, cU] != building_label or
+        segmt[rD, cD] != building_label or
+        segmt[rM, cM] != building_label):
         return [], []
 
-    flag = 1
-    while flag:
-        pt_up_end = pt_up_end - direction
-        if pt_up_end[0] < 0 or pt_up_end[1] < 0 or pt_up_end[1] >= rows - 1:
-            flag = 0
-            pt_up_end = pt_up_end + direction
-            continue
-        if segmt[np.cast['int'](pt_up_end[0] + 0.5)][np.cast['int'](pt_up_end[1] + 0.5)] == sky_label:
-            flag = 0
-            pt_up_end = pt_up_end + direction
+    # ---- Extend upward until first sky pixel (then step back one) ----
+    while True:
+        cand = pt_up_end - direction
+        r, c = int(cand[0] + 0.5), int(cand[1] + 0.5)
+        # bounds (row vs rows, col vs cols)
+        if r < 0 or r >= rows or c < 0 or c >= cols:
+            break
+        if segmt[r, c] == sky_label:
+            break
+        pt_up_end = cand
+    # step back if we exited due to sky
+    r, c = int(pt_up_end[0] + 0.5), int(pt_up_end[1] + 0.5)
+    if 0 <= r < rows and 0 <= c < cols and segmt[r, c] != building_label:
+        pt_up_end = pt_up_end + direction  # move back to last building pixel
 
-    flag = 1
+    # ---- Extend downward until first ground pixel while not having left building before ----
     out_of_building = False
-    while flag:
-        pt_down_end = pt_down_end + direction
-        if pt_down_end[0] >= cols - 1 or pt_down_end[1] < 0 or pt_down_end[1] >= rows - 1:
-            flag = 0
-            continue
-        if segmt[np.cast['int'](pt_down_end[0] + 0.5)][np.cast['int'](pt_down_end[1] + 0.5)] != building_label and \
-           not segmt[np.cast['int'](pt_down_end[0] + 0.5)][np.cast['int'](pt_down_end[1] + 0.5)] in ground_label:
+    while True:
+        cand = pt_down_end + direction
+        r, c = int(cand[0] + 0.5), int(cand[1] + 0.5)
+        if r < 0 or r >= rows or c < 0 or c >= cols:
+            break
+
+        lab = segmt[r, c]
+        if lab != building_label and lab not in ground_label:
             out_of_building = True
         else:
-            if segmt[np.cast['int'](pt_down_end[0] + 0.5)][np.cast['int'](pt_down_end[1] + 0.5)] == building_label:
+            if lab == building_label:
                 out_of_building = False
-        if segmt[np.cast['int'](pt_down_end[0] + 0.5)][np.cast['int'](pt_down_end[1] + 0.5)] in ground_label and \
-                not out_of_building:
-            flag = 0
-            pt_down_end = pt_down_end - direction
-        else: # reach the ground and the previous label is not building
-            if segmt[np.cast['int'](pt_down_end[0] + 0.5)][np.cast['int'](pt_down_end[1] + 0.5)] in ground_label:
-                return [], []
-            pass
-    if  pt_up_end[0] > cols - 1 - edge_thres or \
-        pt_up_end[1] < edge_thres or pt_up_end[1] > rows - edge_thres or \
-        pt_down_end[0] < edge_thres or pt_down_end[0] > cols - 1 - edge_thres or \
-        pt_down_end[1] < edge_thres or pt_down_end[1] > rows - 1 - edge_thres:
-        return [],[]
-    return pt_up_end, pt_down_end
 
+        if (lab in ground_label) and (not out_of_building):
+            # hit ground straight from building ⇒ step back one
+            break
+
+        # If we hit ground but *after* leaving building, it’s an occluder or sidewalk—reject
+        if (lab in ground_label) and out_of_building:
+            return [], []
+
+        pt_down_end = cand
+
+    # If last move reached ground directly, step one back to the last building pixel
+    r, c = int(pt_down_end[0] + 0.5), int(pt_down_end[1] + 0.5)
+    if 0 <= r < rows and 0 <= c < cols and segmt[r, c] in ground_label:
+        pt_down_end = pt_down_end - direction
+
+    # ---- Border safety (row with rows, col with cols) ----
+    if (pt_up_end[0]   < edge_thres or pt_up_end[0]   > rows - 1 - edge_thres or
+        pt_up_end[1]   < edge_thres or pt_up_end[1]   > cols - 1 - edge_thres or
+        pt_down_end[0] < edge_thres or pt_down_end[0] > rows - 1 - edge_thres or
+        pt_down_end[1] < edge_thres or pt_down_end[1] > cols - 1 - edge_thres):
+        return [], []
+
+    return pt_up_end, pt_down_end
 
 def verticalLineExtending(img_name, vertical_lines, segimg, vptz, config, verbose=True):
     """
