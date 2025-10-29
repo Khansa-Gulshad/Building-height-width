@@ -81,42 +81,70 @@ def _get_tau_h_deg(config):
         return float(config["LINE"]["HORIZ_TOL_DEG"])
     return float(config["LINE_CLASSIFY"]["AngleThres"])
 
-def pick_base_horizontals(lines, scores, segimg, vpts_xy, config, min_width_px=20.0):
-    """Classify, refine, extend, then keep likely ground/base horizontals."""
-    # 1) raw candidates by HVPs
+def pick_facade_horizontals(
+    lines, scores, segimg, vpts_xy, config,
+    min_width_px=20.0,
+    avoid_ground_px=20,   # vertical buffer above ground mask
+    avoid_sky_px=10,      # vertical buffer below sky mask
+):
+    """
+    Classify, snap, and extend horizontal façade bands.
+    - keeps segments fully inside the building mask
+    - rejects ones touching (or very near) ground/sky
+    - no preference for bottom-like lines
+    """
+    # 1) LCNN -> horizontal candidates by VP angle
     hori0, hori1 = filter_horizontal_lines(
         imgfile=None, lines=lines, line_scores=scores,
         segimg=segimg, vpts=vpts_xy, config=config,
         return_roof_base=False, verbose=False
     )
 
-    # 2) snap + extend inside building
+    # 2) snap + extend within building mask
     tau_h = _get_tau_h_deg(config)
-    # refinement helpers expect [row,col]
     pB_rc = np.array([vpts_xy[0,1], vpts_xy[0,0]], float)
     pC_rc = np.array([vpts_xy[1,1], vpts_xy[1,0]], float)
 
-    base_segments = []
+    seg = segimg
+    H, W = seg.shape
+    building_label = int(config["SEGMENTATION"]["BuildingLabel"])
+    sky_label      = int(config["SEGMENTATION"]["SkyLabel"])
+    ground_labels  = [int(x) for x in str(config["SEGMENTATION"]["GroundLabel"]).split(',')]
+
+    # quick col-wise buffers: nearest ground/sky row per column
+    ground_rows = np.full(W, -1, int)
+    sky_rows    = np.full(W,  H, int)
+    for c in range(W):
+        g = np.where(np.isin(seg[:, c], ground_labels))[0]
+        s = np.where(seg[:, c] == sky_label)[0]
+        if g.size: ground_rows[c] = g.max()           # highest ground pixel
+        if s.size: sky_rows[c]    = s.min()           # lowest sky pixel
+
+    def clear_of_ground_sky(L, R):
+        # require both endpoints and midpoint to be (i) building,
+        # (ii) at least avoid_* pixels away from ground/sky
+        for P in (L, R, 0.5*(L+R)):
+            r = int(round(P[0])); c = int(round(P[1]))
+            if not (0 <= r < H and 0 <= c < W): return False
+            if seg[r, c] != building_label:          return False
+            if ground_rows[c] >= 0 and r > ground_rows[c] - avoid_ground_px: return False
+            if sky_rows[c]    <  H and r < sky_rows[c]    + avoid_sky_px:    return False
+        return True
+
+    cand = []
     if len(hori0):
-        base_segments += horizontalLinePostprocess(hori0, segimg, pB_rc, pC_rc, tau_h, config)
+        cand += horizontalLinePostprocess(hori0, seg, pB_rc, pC_rc, tau_h, config)
     if len(hori1):
-        base_segments += horizontalLinePostprocess(hori1, segimg, pB_rc, pC_rc, tau_h, config)
+        cand += horizontalLinePostprocess(hori1, seg, pB_rc, pC_rc, tau_h, config)
 
-    # 2b) optional tiny-length filter (in pixels)
-    kept = []
-    for (L, R) in base_segments:
-        if np.linalg.norm((R - L)[[1,0]]) >= min_width_px:  # measure in (x,y) using [col,row]
-            kept.append((L, R))
-    base_segments = kept
+    # min length in pixels
+    cand = [(L, R) for (L, R) in cand
+            if np.linalg.norm((R - L)[[1,0]]) >= min_width_px]
 
-    # 3) prefer segments touching ground labels (fallback: keep all)
-    ground_labels = [int(x) for x in str(config["SEGMENTATION"]["GroundLabel"]).split(',')]
-    bottom_like = []
-    for (L, R) in base_segments:
-        if is_bottom_like(segimg, L, R, ground_labels):
-            bottom_like.append((L, R))
+    # remove segments touching ground/sky (use buffers)
+    facade_segments = [(L, R) for (L, R) in cand if clear_of_ground_sky(L, R)]
 
-    return bottom_like if bottom_like else base_segments
+    return facade_segments
 
 def width_from_segment(L_rc, R_rc, horizon_ABC, zc_m):
     """Meters from a single horizontal ground segment."""
@@ -176,7 +204,7 @@ def compute_widths_config(fname_dict, seg_img, lines, scores, vpts, config,
     horizon = horizon_from_vpts(vpts)
 
     # 2) pick good base horizontals
-    base_segments = pick_base_horizontals(lines, scores, seg_img, vpts, config)
+    base_segments = pick_facade_horizontals(lines, scores, seg_img, vpts, config)
 
     # 3) measure widths
     widths_m = []
