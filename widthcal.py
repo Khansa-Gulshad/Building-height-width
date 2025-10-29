@@ -184,6 +184,10 @@ def compute_widths_config(fname_dict, seg_img, lines, scores, vpts, config,
         w = width_from_segment(L, R, horizon, zc)
         if w > 0:
             widths_m.append(w)
+    # 3b) group horizontals by mid-row (≈ DBSCAN on 1-D y)
+    ymid = np.array([0.5*(L[0]+R[0]) for (L,R) in base_segments], float)
+    eps  = float(config.get("HEIGHT_MEAS", {}).get("MaxDBSANDist", 50))  # reuse ε
+    groups = _cluster_rows_1d(ymid, eps=eps) if len(ymid) else []
 
     # 4) optional CSV
     if out_csv:
@@ -199,11 +203,17 @@ def compute_widths_config(fname_dict, seg_img, lines, scores, vpts, config,
                     fname_dict.get("img",""), i, float(wval),
                     float(L[0]), float(L[1]), float(R[0]), float(R[1])
                 ])
-
+    # 5) optional overlay
+    if verbose and out_img_dir and fname_dict.get("img"):
+        stem = os.path.splitext(os.path.basename(fname_dict["img"]))[0]
+        out_img = os.path.join(out_img_dir, f"{stem}_wdr.png")
+        _draw_width_overlay(fname_dict["img"], seg_img, base_segments, widths_m, groups, out_img)
+        
     meta = {
         "W": W, "H": H,
         "K": K, "horizon_ABC": horizon,
         "camera_height_m": zc,
-        "pitch_deg": pitch_deg
+        "pitch_deg": pitch_deg,
+        "groups": groups
     }
     return widths_m, base_segments, meta
