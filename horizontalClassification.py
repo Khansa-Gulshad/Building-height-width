@@ -65,7 +65,7 @@ def check_if_line_lies_in_building_area(seg_img, a, b, building_label, ratio=10)
     return True
 
 
----------- Optional roof/base tests (if you want them now) ----------
+# ---------- Optional roof/base tests (if you want them now) ----------
 def is_bottom_like(seg_img, a, b, ground_labels, ratio=10):
     """True if any of the 9 sample points hits ground."""
     middle = (a + b) / 2.0
