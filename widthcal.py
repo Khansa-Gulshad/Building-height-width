@@ -5,6 +5,52 @@ import numpy as np
 from horizontalClassification import filter_horizontal_lines, is_bottom_like, is_roof_like
 from horizontalLines import horizontalLinePostprocess
 from skimage.io import imread
+from lineDrawingConfig import PLTOPTS, colors_tables  # reuse your palette
+import matplotlib; matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import skimage.io
+
+def _cluster_rows_1d(yvals, eps=20.0):
+    """Simple 1D clustering by sorted gaps; eps in pixels."""
+    idx = np.argsort(yvals)
+    groups, cur = [], [idx[0]] if len(idx) else []
+    for i in range(1, len(idx)):
+        if abs(yvals[idx[i]] - yvals[idx[i-1]]) <= eps:
+            cur.append(idx[i])
+        else:
+            groups.append(cur); cur = [idx[i]]
+    if cur: groups.append(cur)
+    return groups
+
+def _draw_width_overlay(img_path, seg_img, base_segments, widths_m, groups, out_path):
+    im = skimage.io.imread(img_path); H, W = im.shape[:2]
+    fig = plt.figure(figsize=(W/100, H/100), dpi=100)
+    ax = plt.axes([0,0,1,1]); ax.imshow(im); ax.imshow(seg_img, alpha=0.35); ax.axis("off")
+
+    legends = []
+    for gi, gidx in enumerate(groups):
+        color = colors_tables[gi % len(colors_tables)]
+        vals  = [widths_m[k] for k in gidx]
+        med   = float(np.median(vals)) if len(vals) else 0.0
+        mean  = float(np.mean(vals)) if len(vals) else 0.0
+        handle = None
+        for k in gidx:
+            L,R = base_segments[k]
+            ax.plot([L[1], R[1]], [L[0], R[0]], c=color, linewidth=2, zorder=3)
+            ax.scatter([L[1], R[1]], [L[0], R[0]], **PLTOPTS)
+        if len(gidx):
+            txt = f"avg_width = {mean:.3f}m, median_width = {med:.3f}m"
+            handle, = ax.plot([], [], c=color, linewidth=4, label=txt)
+            legends.append(handle)
+
+    if legends:
+        ax.legend(handles=legends, loc="lower left", framealpha=0.85)
+
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    fig.savefig(out_path.replace(".png",".svg"), bbox_inches="tight", pad_inches=0)
+    fig.savefig(out_path, bbox_inches="tight", pad_inches=0)
+    plt.close(fig)
+
 
 # --- small helpers ---
 
