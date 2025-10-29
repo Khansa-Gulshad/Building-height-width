@@ -140,7 +140,7 @@ def width_from_segment(L_rc, R_rc, horizon_ABC, zc_m):
 
 def compute_widths_config(fname_dict, seg_img, lines, scores, vpts, config,
                           intrins=None, img_size=None, pitch_deg=None,
-                          verbose=False, out_csv=None):
+                          verbose=False, out_csv=None, out_img_dir=None):
     """
     Inputs
       - fname_dict: {"img": <path>} (only used for reporting/saving)
@@ -186,7 +186,7 @@ def compute_widths_config(fname_dict, seg_img, lines, scores, vpts, config,
             widths_m.append(w)
     # 3b) group horizontals by mid-row (≈ DBSCAN on 1-D y)
     ymid = np.array([0.5*(L[0]+R[0]) for (L,R) in base_segments], float)
-    eps  = float(config.get("HEIGHT_MEAS", {}).get("MaxDBSANDist", 50))  # reuse ε
+    eps = float(config["HEIGHT_MEAS"].get("MaxDBSANDist", "50"))  # reuse ε
     groups = _cluster_rows_1d(ymid, eps=eps) if len(ymid) else []
 
     # 4) optional CSV
