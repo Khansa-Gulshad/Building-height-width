@@ -13,9 +13,10 @@ def lineRefinementWithHVP(line, hvp):
     Snap a roughly-horizontal segment to the chosen horizontal vanishing point (pH′).
     Rotate around the midpoint so the direction is collinear with (hvp ↔ midpoint).
     """
-    a, b = line[0].astype(float), line[1].astype(float)
+    import numpy as np
+    line = np.asarray(line, dtype=float)   # <-- ensure ndarray [2,2]
+    a, b = line[0], line[1]
     mpt = (a + b) / 2.0
-    line = line.astype(float)
     line[0] = pointOnLine(hvp, mpt, a)
     line[1] = pointOnLine(hvp, mpt, b)
     return line
