@@ -168,7 +168,8 @@ def width_from_segment(L_rc, R_rc, horizon_ABC, zc_m):
 
 def compute_widths_config(fname_dict, seg_img, lines, scores, vpts, config,
                           intrins=None, img_size=None, pitch_deg=None,
-                          verbose=False, out_csv=None, out_img_dir=None):
+                          verbose=False, out_csv=None, out_img_dir=None,
+                          use_pitch_horizon=False):
     """
     Inputs
       - fname_dict: {"img": <path>} (only used for reporting/saving)
@@ -200,8 +201,15 @@ def compute_widths_config(fname_dict, seg_img, lines, scores, vpts, config,
     else:
         K = intrins
 
-    # 1) horizon from detected pB′, pC′
-    horizon = horizon_from_vpts(vpts)
+    # --- horizon choice ---
+    if use_pitch_horizon and (pitch_deg is not None):
+        f = K[0,0]
+        cy = K[1,2]
+        # horizontal horizon: y = cy - f / tan(pitch)
+        y_h = cy - f / np.tan(np.deg2rad(float(pitch_deg)))
+        horizon = np.array([0.0, 1.0, -y_h], float)  # Ax + By + C = 0
+    else:
+        horizon = horizon_from_vpts(vpts)
 
     # 2) pick good base horizontals
     base_segments = pick_facade_horizontals(lines, scores, seg_img, vpts, config)
