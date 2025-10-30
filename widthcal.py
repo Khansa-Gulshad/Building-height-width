@@ -2,7 +2,7 @@
 import os, csv
 import numpy as np
 
-from horizontalClassification import filter_horizontal_lines, is_bottom_like, is_roof_like
+from horizontalClassification import filter_horizontal_lines
 from horizontalLines import horizontalLinePostprocess
 from skimage.io import imread
 from lineDrawingConfig import PLTOPTS, colors_tables  # reuse your palette
