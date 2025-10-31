@@ -348,12 +348,12 @@ def download_images_for_points(gdf, access_token, max_workers, cut_by_road_centr
             futures = []
             for _, row in gdf.iterrows():
                 try:
-					futures.append(executor.submit(
-						download_image,
-						row["id"], row["geometry"], row.get("save_sample", True),
-						city, False,  # force no road-centre cropping
-						access_token, processor, model, fov, pitch
-					))
+                    futures.append(executor.submit(
+                        download_image,
+                        row["id"], row["geometry"], row.get("save_sample", True),
+                        city, False,  # force no road-centre cropping
+                        access_token, processor, model, fov, pitch
+                    ))
                 except Exception as e:
                     print(f"Exception scheduling row {row['id']}: {e}")
 
