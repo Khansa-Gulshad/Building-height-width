@@ -11,10 +11,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 import threading
 import csv
+import modules.config as cfg 
 
 from street_view.segmentation_images import  (
-    save_full_color, save_three_color, remap_to_three, save_full_overlay, save_rgb,
-    save_three_class_mask, save_three_class_npz   # <-- add these two
+    save_full_color, save_three_color, remap_to_three, save_full_overlay, save_rgb, save_three_class_npz   # <-- add these two
 )
 
 from PIL import Image, ImageFile
@@ -107,17 +107,11 @@ def get_road_centres(prediction, distance=2000, prominence=100):
     
     return peaks
 
-
 def find_road_centre(segmentation):
-    # Calculate distance and prominence thresholds based on the segmentation shape
-	distance = int(2000 * segmentation.shape[1] // 5760)
-	prominence = int(100 * segmentation.shape[0] // 2880)
-	
-    # Find road centers based on the segmentation, distance, and prominence thresholds
-	centres = get_road_centres(segmentation, distance=distance, prominence=prominence)
-	
-	return centres
-
+    distance   = int(2000 * segmentation.shape[1] // 5760)
+    prominence = int(100  * segmentation.shape[0] // 2880)
+    centres = get_road_centres(segmentation, distance=distance, prominence=prominence)
+    return centres
 
 def crop_panoramic_images_roads(original_width, image, segmentation, road_centre):
     width, height = image.size
@@ -354,12 +348,12 @@ def download_images_for_points(gdf, access_token, max_workers, cut_by_road_centr
             futures = []
             for _, row in gdf.iterrows():
                 try:
-                    futures.append(executor.submit(
+					futures.append(executor.submit(
 						download_image,
-                		row["id"], row["geometry"], row.get("save_sample", True),
-                		city, False,  # force no road-centre cropping
-                		access_token, processor, model, fov, pitch
-            		))
+						row["id"], row["geometry"], row.get("save_sample", True),
+						city, False,  # force no road-centre cropping
+						access_token, processor, model, fov, pitch
+					))
                 except Exception as e:
                     print(f"Exception scheduling row {row['id']}: {e}")
 
