@@ -28,77 +28,64 @@ def pick_two_verticals_farthest_x(Vt_xy, Vb_xy, heights_m):
 
 def rectify_facade_from_two_verticals(
     img_rgb,            # original RGB image (H,W,3), dtype uint8
-    seg_mask,           # segmentation mask (H,W), ints; 1==building or use your IDs
+    seg_mask,           # segmentation mask (H,W), ints
     Vt1, Vb1,           # [x,y] top/bottom of chosen left vertical  (image coords)
     Vt2, Vb2,           # [x,y] top/bottom of chosen right vertical (image coords)
     known_height_m,     # metric height (meters) to scale the rectified image
-    target_h_px=1000    # desired rectified height in pixels (sampling resolution)
+    target_h_px=None,   # <-- None/"native"/"auto" => match native façade pixel height
+    min_h_px=64,        # safety clamp (avoid tiny outputs)
+    max_h_px=None       # optional upper clamp (e.g., 2000)
 ):
     """
     Returns:
-      rect_rgb        : rectified RGB image (target_h_px tall)
-      rect_mask       : rectified mask (same size as rect_rgb)
-      meters_per_px   : scalar, metric scale in the rectified image
-      width_m         : whole-quad width in meters (useful quick check)
-      H               : 3x3 homography mapping image -> rectified
-      (tw, th)        : rectified size (width px, height px)
+      rect_rgb, rect_mask, meters_per_px, width_m, H, (target_w_px, target_h_px)
     """
-
     # --- 1) Order the 4 source points as a convex quad in (TL, TR, BR, BL) ---
-
-    # Decide which vertical is left vs right by comparing their top x
-    left_is_1 = (Vt1[0] <= Vt2[0])  # True if vertical 1 is to the left
-
+    left_is_1 = (Vt1[0] <= Vt2[0])
     if left_is_1:
-        TL, TR, BR, BL = Vt1, Vt2, Vb2, Vb1  # TL=top of left, TR=top of right, BR=bottom of right, BL=bottom of left
+        TL, TR, BR, BL = Vt1, Vt2, Vb2, Vb1
     else:
-        TL, TR, BR, BL = Vt2, Vt1, Vb1, Vb2  # swap roles if vertical 2 is left
-
-    src = np.float32([TL, TR, BR, BL])       # source quad, image coords [x,y]
+        TL, TR, BR, BL = Vt2, Vt1, Vb1, Vb2
+    src = np.float32([TL, TR, BR, BL])
 
     # --- 2) Choose the target rectangle size (target_w_px, target_h_px) ---
+    h_left_px  = np.linalg.norm(np.array(BL) - np.array(TL))
+    h_right_px = np.linalg.norm(np.array(BR) - np.array(TR))
+    avg_h_px   = 0.5 * (h_left_px + h_right_px)            # native façade pixel height in the input
 
-    # Pixel height of the quad on the image (average of the two vertical lengths)
-    h_left_px  = np.linalg.norm(np.array(BL) - np.array(TL))  # length of left vertical in pixels
-    h_right_px = np.linalg.norm(np.array(BR) - np.array(TR))  # length of right vertical in pixels
-    avg_h_px   = 0.5 * (h_left_px + h_right_px)               # average façade pixel-height in the image
+    top_span_px    = np.linalg.norm(np.array(TR) - np.array(TL))
+    bottom_span_px = np.linalg.norm(np.array(BR) - np.array(BL))
+    avg_w_px       = 0.5 * (top_span_px + bottom_span_px)  # native façade pixel width in the input
 
-    # Pixel width of the quad on the image (average of top and bottom spans)
-    top_span_px    = np.linalg.norm(np.array(TR) - np.array(TL))  # top horizontal span in pixels
-    bottom_span_px = np.linalg.norm(np.array(BR) - np.array(BL))  # bottom horizontal span in pixels
-    avg_w_px       = 0.5 * (top_span_px + bottom_span_px)         # average façade pixel-width in the image
+    # Native sampling option
+    if target_h_px is None or str(target_h_px).lower() in ("native", "auto"):
+        target_h_px = int(round(avg_h_px))
+        target_h_px = max(int(min_h_px), target_h_px)
+        if max_h_px is not None:
+            target_h_px = min(int(max_h_px), target_h_px)
+    else:
+        target_h_px = int(target_h_px)
 
-    # Preserve the façade's aspect ratio when we rectifiy:
-    #    target_w_px / target_h_px  ≈  avg_w_px / avg_h_px
-    # -> target_w_px  ≈  (avg_w_px / avg_h_px) * target_h_px
-    ratio = (avg_w_px / max(1e-6, avg_h_px))                      # guard divide-by-zero
-    target_w_px = int(max(8, round(ratio * float(target_h_px))))  # pick a reasonable integer width >=8
+    ratio = (avg_w_px / max(1e-6, avg_h_px))               # preserve aspect ratio
+    target_w_px = int(max(8, round(ratio * float(target_h_px))))
 
-    # Destination rectangle corners in rectified pixel coords
     dst = np.float32([
-        [0,               0],                # top-left  maps to x=0,               y=0
-        [target_w_px - 1, 0],                # top-right maps to x=target_w_px-1,  y=0
-        [target_w_px - 1, target_h_px - 1],  # bottom-right
-        [0,               target_h_px - 1]   # bottom-left
+        [0,               0],
+        [target_w_px - 1, 0],
+        [target_w_px - 1, target_h_px - 1],
+        [0,               target_h_px - 1]
     ])
 
-    # --- 3) Compute homography that maps image -> rectified rectangle ---
+    # --- 3) Homography ---
+    H = cv2.getPerspectiveTransform(src, dst)
 
-    H = cv2.getPerspectiveTransform(src, dst)  # 3x3 matrix; maps [x,y,1]^T in image to rectified coords
-
-    # --- 4) Warp RGB and mask into the rectified frame ---
-
-    rect_rgb  = cv2.warpPerspective(img_rgb, H, (target_w_px, target_h_px), flags=cv2.INTER_LINEAR)      # bilinear for images
+    # --- 4) Warp ---
+    rect_rgb  = cv2.warpPerspective(img_rgb, H, (target_w_px, target_h_px), flags=cv2.INTER_LINEAR)
     rect_mask = cv2.warpPerspective(seg_mask.astype(np.int32), H, (target_w_px, target_h_px),
-                                    flags=cv2.INTER_NEAREST)                                             # nearest for labels
+                                    flags=cv2.INTER_NEAREST)
 
-    # --- 5) Set metric scale in the rectified image ---
-
-    # By construction, the rectified vertical extent equals target_h_px pixels,
-    # and that should correspond to the real-world height 'known_height_m'.
-    meters_per_px = float(known_height_m) / float(target_h_px)  # m/px everywhere in rectified façade
-
-    # Useful sanity: whole façade width in meters (can compare to building drawings)
+    # --- 5) Metric scale ---
+    meters_per_px = float(known_height_m) / float(target_h_px)  # m/px in rectified frame
     width_m = float(target_w_px) * meters_per_px
 
     return rect_rgb, rect_mask, meters_per_px, width_m, H, (target_w_px, target_h_px)
