@@ -1,6 +1,65 @@
 import numpy as np
 import cv2
 
+import numpy as np
+
+def robust_keep_by_height(Hm, min_h=2.5, max_h=80.0, k_mad=3.5):
+    """
+    Keep heights within [min_h, max_h] and within k*MAD of the median.
+    Returns a boolean mask of length len(Hm).
+    """
+    Hm = np.asarray(Hm, float)
+    finite = np.isfinite(Hm)
+    Hf = Hm[finite]
+    if len(Hf) == 0:
+        return np.zeros_like(Hm, dtype=bool)
+    med = np.median(Hf)
+    mad = np.median(np.abs(Hf - med)) + 1e-9
+    z = np.abs(Hm - med) / mad
+    return finite & (Hm >= min_h) & (Hm <= max_h) & (z <= k_mad)
+
+def filter_vertical_refs_with_counts(stem, Vt, Vb, Hm, heights_csv_path="/w/PROJ/heights.csv",
+                                     min_count=3, min_h=2.5, max_h=80.0, k_mad=3.5):
+    """
+    Use heights.csv to drop groups with small 'count', then apply robust height filtering.
+    We match by 'median_m' numerically (rounded) for this image.
+    """
+    import csv, os
+    keep = np.ones(len(Hm), dtype=bool)
+
+    # 1) map median_m -> count for this image
+    counts = {}
+    if os.path.exists(heights_csv_path):
+        with open(heights_csv_path) as f:
+            r = csv.DictReader(f)
+            for row in r:
+                if row["image"].endswith(f"/{stem}.jpg"):
+                    m = round(float(row["median_m"]), 6)
+                    counts[m] = max(counts.get(m, 0), int(row.get("count", "0")))
+
+    # 2) drop entries whose group count < min_count (if we can match)
+    for i, h in enumerate(Hm):
+        m = round(float(h), 6)
+        if m in counts and counts[m] < min_count:
+            keep[i] = False
+
+    # 3) robust height filter (range + MAD)
+    keep &= robust_keep_by_height(Hm, min_h=min_h, max_h=max_h, k_mad=k_mad)
+
+    # 4) also drop nonsense verticals (top below bottom, or too short)
+    for i in range(len(keep)):
+        if not keep[i]: 
+            continue
+        # enforce top.y < bottom.y and minimum pixel height
+        if not (Vt[i][1] < Vb[i][1]):
+            keep[i] = False
+            continue
+        pix_h = float(np.linalg.norm(np.array(Vb[i]) - np.array(Vt[i])))
+        if pix_h < 15:   # tiny slivers are unreliable
+            keep[i] = False
+
+    return Vt[keep], Vb[keep], Hm[keep]
+
 def pick_two_verticals_farthest_x(Vt_xy, Vb_xy, heights_m):
     """
     Select two verticals on the same façade that are farthest apart horizontally.
