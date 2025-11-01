@@ -3,10 +3,11 @@ import cv2
 
 import numpy as np
 
-def robust_keep_by_height(Hm, min_h=2.5, max_h=80.0, k_mad=3.5):
+def robust_keep_by_height(Hm, min_h=2.5, max_h=120.0, k_mad=4.5):
     """
     Keep heights within [min_h, max_h] and within k*MAD of the median.
     Returns a boolean mask of length len(Hm).
+    RELAXED defaults (broader than before) to avoid dropping useful verticals.
     """
     Hm = np.asarray(Hm, float)
     finite = np.isfinite(Hm)
@@ -18,16 +19,41 @@ def robust_keep_by_height(Hm, min_h=2.5, max_h=80.0, k_mad=3.5):
     z = np.abs(Hm - med) / mad
     return finite & (Hm >= min_h) & (Hm <= max_h) & (z <= k_mad)
 
-def filter_vertical_refs_with_counts(stem, Vt, Vb, Hm, heights_csv_path="/w/PROJ/heights.csv",
-                                     min_count=3, min_h=2.5, max_h=80.0, k_mad=3.5):
+
+def filter_vertical_refs_with_counts(
+    stem, Vt, Vb, Hm, heights_csv_path="/w/PROJ/heights.csv",
+    min_count=1,              # was 3 → keep more data by default
+    min_h=2.5, max_h=120.0,   # was 80.0 → allow taller façades
+    k_mad=4.5,                # was 3.5 → more tolerant to spread
+    pix_h_min=10,             # was 15 → accept slightly shorter slivers
+    mode="relaxed",           # "relaxed" | "strict" | "count_only"
+    verbose=False
+):
     """
-    Use heights.csv to drop groups with small 'count', then apply robust height filtering.
-    We match by 'median_m' numerically (rounded) for this image.
+    Filter per-image vertical refs using (1) group 'count' from heights.csv,
+    (2) robust height sanity (range + MAD), and (3) simple pixel checks.
+    Set mode="count_only" to keep only the count filter + pixel sanity.
     """
     import csv, os
-    keep = np.ones(len(Hm), dtype=bool)
 
-    # 1) map median_m -> count for this image
+    Vt = np.asarray(Vt, float)
+    Vb = np.asarray(Vb, float)
+    Hm = np.asarray(Hm, float)
+
+    # --- choose presets by mode ---
+    if mode == "strict":
+        # Use your earlier, tighter gates
+        min_count = max(min_count, 3)
+        min_h, max_h, k_mad, pix_h_min = 2.5, 80.0, 3.5, 15
+    elif mode == "count_only":
+        # Disable height-based rejection; keep pixel sanity only
+        pass  # keep current arguments; we’ll skip the robust step below
+    else:
+        # "relaxed" -> use the function defaults defined above
+        pass
+
+    # --- 1) map median_m -> count for this image ---
+    keep = np.ones(len(Hm), dtype=bool)
     counts = {}
     if os.path.exists(heights_csv_path):
         with open(heights_csv_path) as f:
@@ -37,26 +63,32 @@ def filter_vertical_refs_with_counts(stem, Vt, Vb, Hm, heights_csv_path="/w/PROJ
                     m = round(float(row["median_m"]), 6)
                     counts[m] = max(counts.get(m, 0), int(row.get("count", "0")))
 
-    # 2) drop entries whose group count < min_count (if we can match)
+    # drop entries whose group count < min_count (if we can match)
     for i, h in enumerate(Hm):
         m = round(float(h), 6)
         if m in counts and counts[m] < min_count:
             keep[i] = False
+            if verbose:
+                print(f"[{stem}] drop idx {i}: group count {counts[m]} < {min_count}")
 
-    # 3) robust height filter (range + MAD)
-    keep &= robust_keep_by_height(Hm, min_h=min_h, max_h=max_h, k_mad=k_mad)
+    # --- 2) robust height sanity (unless count_only) ---
+    if mode != "count_only":
+        keep &= robust_keep_by_height(Hm, min_h=min_h, max_h=max_h, k_mad=k_mad)
 
-    # 4) also drop nonsense verticals (top below bottom, or too short)
+    # --- 3) pixel sanity: top<bottom and minimum pixel height ---
     for i in range(len(keep)):
-        if not keep[i]: 
+        if not keep[i]:
             continue
-        # enforce top.y < bottom.y and minimum pixel height
-        if not (Vt[i][1] < Vb[i][1]):
+        if not (Vt[i][1] < Vb[i][1]):  # enforce top.y < bottom.y
             keep[i] = False
+            if verbose:
+                print(f"[{stem}] drop idx {i}: top below bottom")
             continue
         pix_h = float(np.linalg.norm(np.array(Vb[i]) - np.array(Vt[i])))
-        if pix_h < 15:   # tiny slivers are unreliable
+        if pix_h < pix_h_min:
             keep[i] = False
+            if verbose:
+                print(f"[{stem}] drop idx {i}: pix_h {pix_h:.1f} < {pix_h_min}")
 
     return Vt[keep], Vb[keep], Hm[keep]
 
