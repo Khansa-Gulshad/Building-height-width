@@ -1,0 +1,16 @@
+/Gdańsk, Poland/
+
+# Heavy downloaded street-view data
+/Gdańsk, Poland/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
+
+# Runtime/cache folders
+cache/
+.Trash-*/
+/SIHE/

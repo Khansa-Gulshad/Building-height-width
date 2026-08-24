@@ -1,0 +1,2 @@
+image_id,mask_path,side,pitch_deg,fov_deg
+POINT_ERROR,AttributeError: 'Series' object has no attribute 'id',,25,90
